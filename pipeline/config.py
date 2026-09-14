@@ -17,6 +17,11 @@ POSITIONS = ["QB", "RB", "WR", "TE"]
 REGULAR_SEASON_WEEKS = 18
 FANTASY_PLAYOFF_WEEKS = (15, 17)
 
+# From this week on, projections start from form built within the current
+# season. Before it no player has a game with a game behind it, so they start
+# from earlier seasons instead; see project.early_season_form.
+FULL_FORM_FROM_WEEK = 3
+
 # ---------------------------------------------------------------------------
 # Scoring
 # ---------------------------------------------------------------------------

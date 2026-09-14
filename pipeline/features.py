@@ -224,7 +224,10 @@ def game_script(schedule: pd.DataFrame) -> pd.DataFrame:
     cols = ["season", "week", "team", "opponent", "implied_total", "spread", "roof"]
     out = pd.concat([home[cols], away[cols]], ignore_index=True)
     out["is_dome"] = out["roof"].isin(["dome", "closed"]).astype(int)
-    out["is_favourite"] = (out["spread"] < 0).astype(int)
+    # nflverse quotes spread_line as the home team's expected margin, so a
+    # positive spread here means this team is favoured. implied_total above
+    # already reads it that way.
+    out["is_favourite"] = (out["spread"] > 0).astype(int)
     return out.drop(columns=["roof"])
 
 

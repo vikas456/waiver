@@ -23,28 +23,86 @@ import numpy as np
 import pandas as pd
 
 from . import explain, features, simulate, train
-from .config import (CURRENT_SEASON, POSITIONS, SCORING_FORMATS,
-                     STAT_COMPONENTS, TRAIN_SEASONS)
+from .config import (CURRENT_SEASON, FULL_FORM_FROM_WEEK, POSITIONS,
+                     SCORING_FORMATS, STABILISATION_GAMES, STAT_COMPONENTS,
+                     TRAIN_SEASONS)
 from .scoring import score_components
 
 OUT_PATH = Path("web/data/projections.json")
 
 
-def upcoming_rows(hist: pd.DataFrame, schedule: pd.DataFrame, season: int,
-                  from_week: int, through_week: int) -> pd.DataFrame:
+def early_season_form(rows: pd.DataFrame, rosters: pd.DataFrame, season: int,
+                      from_week: int) -> pd.DataFrame:
+    """Form for weeks 1 and 2, before any player has a game with a game
+    behind it this season.
+
+    Each player starts from his last game of an earlier season, the most
+    recent full view of his role. A rookie starts from his first game this
+    season, which carries only his role prior. Games already played this
+    season are then blended in with the shrinkage the feature layer uses, so
+    one game moves a quickly stabilising metric such as snap share further
+    than a slow one such as yards after catch. Training is untouched: rolling
+    windows still reset at the season boundary, and this only decides where an
+    early projection starts.
+
+    Only players on an active roster are kept, so retired, released and
+    injured-reserve players do not reappear, and each takes his current team so
+    an offseason move projects against the new schedule.
+    """
+    def latest(frame: pd.DataFrame) -> pd.DataFrame:
+        return (frame.sort_values(["season", "week"])
+                .groupby("player_id", observed=True).tail(1)
+                .set_index("player_id"))
+
+    current = rows[(rows["season"] == season) & (rows["week"] < from_week)]
+    this_season = latest(current)
+    form = latest(rows[(rows["season"] < season) & (rows["games_played"] >= 1)])
+    form = pd.concat([form, this_season.drop(form.index, errors="ignore")])
+
+    if "status" in rosters.columns:
+        rosters = rosters[rosters["status"] == "ACT"]
+    form = form[form.index.isin(rosters["player_id"])].copy()
+    form["season"] = season
+    form["team"] = (this_season["team"]
+                    .combine_first(rosters.set_index("player_id")["team"])
+                    .reindex(form.index).fillna(form["team"]))
+
+    games = current.groupby("player_id", observed=True).size().reindex(form.index).fillna(0)
+    means = (current.groupby("player_id", observed=True).mean(numeric_only=True)
+             .reindex(form.index))
+    for col in features.SHARE_COLS + features.EFF_COLS + ["td_oe"]:
+        if f"{col}_adj" in form.columns and col in means.columns:
+            form[f"{col}_adj"] = features.shrink(
+                means[col], games, form[f"{col}_adj"], STABILISATION_GAMES.get(col, 6.0))
+
+    # Display only, never a model input. The site reads these as this season's
+    # touchdowns, so last season's totals must not carry over.
+    totals = current.groupby("player_id", observed=True)[["actual_td", "expected_td"]].sum()
+    form["actual_td_season"] = totals["actual_td"].reindex(form.index)
+    form["expected_td_season"] = totals["expected_td"].reindex(form.index)
+    return form
+
+
+def upcoming_rows(rows: pd.DataFrame, schedule: pd.DataFrame, season: int,
+                  from_week: int, through_week: int,
+                  rosters: pd.DataFrame) -> pd.DataFrame:
     """Build one feature row per player per remaining game.
 
     Each future row carries the player's latest known form joined to that
     specific week's opponent and game script, which is what makes the
     projection matchup-aware rather than a flat season average.
     """
-    # Form must come from games already played. Taking the last row of the
-    # season would quietly pull in weeks the model is supposed to predict,
-    # which inflates every accuracy number downstream.
-    played = hist[(hist["season"] == season) & (hist["week"] < from_week)]
-    latest = (played.sort_values(["player_id", "week"])
-              .groupby("player_id", observed=True).tail(1)
-              .set_index("player_id"))
+    if from_week < FULL_FORM_FROM_WEEK:
+        latest = early_season_form(rows, rosters, season, from_week)
+    else:
+        # Form must come from games already played. Taking the last row of the
+        # season would quietly pull in weeks the model is supposed to predict,
+        # which inflates every accuracy number downstream.
+        played = rows[(rows["season"] == season) & (rows["week"] < from_week)
+                      & (rows["games_played"] >= 1)]
+        latest = (played.sort_values(["player_id", "week"])
+                  .groupby("player_id", observed=True).tail(1)
+                  .set_index("player_id"))
 
     gs = features.game_script(schedule)
     gs = gs[(gs["season"] == season) & gs["week"].between(from_week, through_week)]
@@ -92,9 +150,9 @@ def apply_future_defense(future: pd.DataFrame, defense: pd.DataFrame,
 def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
           rounds: int = 300, verbose: bool = True,
           source: str = "nflverse") -> dict:
-    hist = features.build_features(
+    rows = features.build_features(
         data["weekly"], data["team_week"], data["defense"], data["schedule"])
-    hist = hist[hist["games_played"] >= 1]
+    hist = rows[rows["games_played"] >= 1]
 
     train_mask = ~((hist["season"] == season) & (hist["week"] >= from_week))
     train_df = hist[train_mask]
@@ -105,10 +163,11 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
     rank_bundle = train.train_ranker(train_df, rounds=rounds)
     variance = train.fit_variance(train_df, comp_bundle)
 
-    through = int(data["schedule"]["week"].max())
-    future = upcoming_rows(hist, data["schedule"], season, from_week, through)
+    sched = data["schedule"]
+    through = int(sched.loc[sched["season"] == season, "week"].max())
+    future = upcoming_rows(rows, sched, season, from_week, through, data["rosters"])
     if future.empty:
-        raise RuntimeError("no upcoming games found for the requested range")
+        raise RuntimeError(f"no player has form to project from week {from_week} of {season}")
     future = apply_future_defense(future, data["defense"], season)
 
     preds = train.predict_components(future, comp_bundle)
@@ -128,7 +187,15 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
     roster = data["rosters"].set_index("player_id")
     missed = (data["weekly"][data["weekly"]["season"] == season]
               .groupby("player_id")["week"].count())
-    weeks_so_far = max(1, from_week - 1)
+    # Before week one nobody has had a game to miss.
+    weeks_so_far = from_week - 1
+
+    # Early rows carry last season's sample size and role changes, which the
+    # site would otherwise describe as this season's.
+    early = from_week < FULL_FORM_FROM_WEEK
+    weekly = data["weekly"]
+    so_far = (weekly[(weekly["season"] == season) & (weekly["week"] < from_week)]
+              .groupby("player_id")["week"].count())
 
     players: dict[str, dict] = {}
     for i, row in future.iterrows():
@@ -164,8 +231,9 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
                     "actualTd": _r(row.get("actual_td_season")),
                     "expectedTd": _r(row.get("expected_td_season")),
                     "tdOverExpected": _r(row.get("td_oe_adj")),
-                    "roleChange": int(row.get("role_change", 0) or 0),
-                    "gamesPlayed": int(row.get("games_played", 0) or 0),
+                    "roleChange": 0 if early else int(row.get("role_change", 0) or 0),
+                    "gamesPlayed": (int(so_far.get(pid, 0)) if early
+                                    else int(row.get("games_played", 0) or 0)),
                 },
             }
         mean = float(max(ppr_pts.iloc[i], 0.0))
@@ -189,6 +257,7 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
             "source": source,
             "fromWeek": from_week,
             "throughWeek": through,
+            "earlySeason": early,
             "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "scoringFormats": {k: {kk: vv for kk, vv in v.items() if kk != "label"}
                                | {"label": v["label"]}

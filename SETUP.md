@@ -23,23 +23,39 @@ One flag. No code changes.
 python -m pipeline.project --source nflverse --from-week 11
 ```
 
-The first run downloads roughly 2 GB of play-by-play across five seasons and
-takes 15 to 40 minutes depending on your connection. Everything is cached to
-`data/cache`, so later runs take two or three minutes.
+The first run downloads about 130 MB, most of it play-by-play, and takes a few
+minutes. Completed seasons are cached to `data/cache`, one file per season, so
+later runs only fetch the season in progress, which is never cached because
+it changes every week.
+
+If a load fails or the numbers look wrong, check each loader on its own:
+
+```bash
+python -m pipeline.doctor                  # the last completed season
+python -m pipeline.doctor --season 2026    # the season in progress
+```
+
+It reports which loader broke, with its traceback, and also catches the quiet
+failures: missing columns, empty ones, duplicated rows, and scoring that
+disagrees with nflverse's own PPR total.
 
 `--from-week` should be the next week to be played. If it is Tuesday of week
 11, pass 11. `python -m pipeline.current_week` works it out from the calendar.
+From week 3, form comes from the current season alone. Weeks 1 and 2 start
+each player from his last game of an earlier season, blend in any games
+already played this season, and keep only players on an active roster.
 
-What gets pulled, all free and all from nflverse:
+What gets pulled, all free and all from nflverse via
+[nflreadpy](https://github.com/nflverse/nflreadpy):
 
 | Source | What it gives |
 |---|---|
-| `import_pbp_data` | play-by-play, the basis for every usage share |
-| `import_weekly_data` | stat lines and the scoring components |
-| `import_snap_counts` | snap share, the earliest signal of a role change |
-| `import_ftn_data` | charting data, 2022 onward |
-| `import_schedules` | spreads and totals for game script |
-| `import_seasonal_rosters` | age, draft capital, experience for the priors |
+| `load_pbp` | play-by-play, the basis for every usage share |
+| `load_player_stats` | stat lines and the scoring components |
+| `load_snap_counts` | snap share, the earliest signal of a role change |
+| `load_schedules` | spreads and totals for game script |
+| `load_rosters` | age, draft capital, experience for the priors |
+| `load_players` | the id map that joins snap counts to stat lines |
 
 ## 3. Check the accuracy claims yourself
 
@@ -57,9 +73,7 @@ volume. The trailing average is a harder baseline than it looks, because it is
 roughly what a sharp person does in their head.
 
 **If the model does not beat all three, it is not better, and the honest move
-is to say so and keep working rather than ship it.** I could not run this on
-real data from my environment, so these numbers are yours to generate. Expect
-roughly 3 to 8 points of pairwise accuracy over the trailing average if the
+is to say so and keep working rather than ship it.** Expect roughly 3 to 8 points of pairwise accuracy over the trailing average if the
 approach is working as intended. If you see less than 2, something is wrong —
 start by checking that `--from-week` is right and that the cache is current.
 
@@ -113,6 +127,7 @@ pipeline/
   explain.py      SHAP grouping and the comparative reasoning
   project.py      builds web/data/projections.json
   backtest.py     walk-forward validation against baselines
+  doctor.py       checks each nflverse loader against one season
 web/
   index.html, styles.css, app.js, data/projections.json
 ```

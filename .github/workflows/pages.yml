@@ -1,13 +1,18 @@
 name: Deploy site
 
-# The site is static, so a push is all a deploy takes. The weekly projection
-# job commits new data, which lands here and redeploys on its own.
+# The site is static, so a deploy is just an upload of web/. The weekly
+# projection job's commit cannot trigger the push event below: GitHub never
+# lets a push made with the built-in token start another workflow. So this
+# also runs whenever that job finishes, and deploys only if it succeeded.
 on:
   push:
     branches: [main]
     paths:
       - "web/**"
       - ".github/workflows/pages.yml"
+  workflow_run:
+    workflows: ["Weekly projections"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -21,6 +26,7 @@ concurrency:
 
 jobs:
   deploy:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

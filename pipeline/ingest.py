@@ -1,47 +1,132 @@
 """Pull raw data from nflverse and reshape it into the tables the feature
 layer expects.
 
-Four tables come out of here:
-  weekly    one row per player per game, with usage and stat components
+Five tables come out of here:
+  weekly    one row per player per regular-season game, with usage and stat components
   team_week one row per team per game, with pace, pass rate and efficiency
   defense   one row per defence per game, with what they allowed by position
-  schedule  remaining games, with Vegas lines for game-script projection
+  schedule  every regular-season game, with Vegas lines for game-script projection
+  rosters   one row per player in the latest season, for age and availability
 
-Everything is cached to parquet under data/cache so a rebuild during the week
-does not re-download four seasons of play-by-play.
+Loading goes through nflreadpy, the maintained successor to nfl_data_py. The
+older library reads a player-stats release that nflverse retired in 2025, so
+it cannot load any season from 2025 onward.
+
+Completed seasons are cached to parquet under data/cache, one file per season,
+so a rebuild during the week does not re-download five seasons of
+play-by-play. The season in progress is never cached to disk; see _season.
 """
 
 from __future__ import annotations
 
+import functools
 import os
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from .config import CURRENT_SEASON, FTN_FIRST_SEASON, POSITIONS
+from .config import CURRENT_SEASON, POSITIONS
+from .scoring import actual_points
 
 CACHE_DIR = Path(os.environ.get("FF_CACHE", "data/cache"))
 
+PBP_COLUMNS = [
+    "game_id", "play_id", "season", "week", "season_type", "posteam",
+    "play_type", "yardline_100", "pass_attempt", "rush_attempt", "sack",
+    "air_yards", "yards_after_catch", "epa", "cpoe", "xpass", "wp",
+    "half_seconds_remaining", "receiver_player_id", "rusher_player_id",
+]
 
-def _cache_path(name: str, seasons: list[int]) -> Path:
-    tag = f"{min(seasons)}_{max(seasons)}"
-    return CACHE_DIR / f"{name}_{tag}.parquet"
+# nflverse stat names mapped onto the components the model predicts.
+STAT_RENAMES = {
+    "player_display_name": "player_name",
+    "passing_yards": "pass_yd",
+    "passing_tds": "pass_td",
+    "passing_interceptions": "interception",
+    "rushing_yards": "rush_yd",
+    "rushing_tds": "rush_td",
+    "receptions": "reception",
+    "receiving_yards": "rec_yd",
+    "receiving_tds": "rec_td",
+    # Kept only so the doctor can check scoring.py against nflverse's total.
+    "fantasy_points_ppr": "nflverse_ppr",
+}
+FUMBLES_LOST = ["sack_fumbles_lost", "rushing_fumbles_lost", "receiving_fumbles_lost"]
+TWO_POINT = ["passing_2pt_conversions", "rushing_2pt_conversions",
+             "receiving_2pt_conversions"]
+WEEKLY_COLUMNS = (["player_id", "position", "season", "week", "game_id", "team",
+                   "opponent_team", "targets", "carries"]
+                  + list(STAT_RENAMES) + FUMBLES_LOST + TWO_POINT)
+
+# Per-player route counts are not published free, so routes are estimated
+# from snap share on the team's dropbacks, using the same rate as synth.py.
+# Route participation is therefore a proxy for snap share, not a separate
+# signal. Models are fitted per position, so one rate for every position
+# costs nothing.
+ROUTES_PER_PASS_SNAP = 0.92
+
+_LIVE: dict[tuple[str, int], pd.DataFrame] = {}
 
 
-def _cached(name: str, seasons: list[int], builder, refresh: bool = False):
+def _nfl():
+    import nflreadpy
+    return nflreadpy
+
+
+@functools.cache
+def _pfr_ids() -> pd.Series:
+    """gsis id to Pro Football Reference id, from nflverse's master player
+    table, which is unique on both. Held for the run rather than cached to
+    disk, because it gains every new rookie."""
+    players = _nfl().load_players().to_pandas()
+    return players.dropna(subset=["gsis_id", "pfr_id"]).set_index("gsis_id")["pfr_id"]
+
+
+def _season(name: str, season: int, builder, refresh: bool) -> pd.DataFrame:
+    """One season of one table, read from cache where that is safe.
+
+    The season in progress is rebuilt on every run and held only in memory.
+    Its data changes weekly and CI restores the cache between runs, so a copy
+    on disk would pin every later projection to the first download of the
+    year. Memory still spares a second download within the same run.
+    """
+    if season >= CURRENT_SEASON:
+        key = (name, season)
+        if refresh or key not in _LIVE:
+            _LIVE[key] = builder(season)
+        return _LIVE[key]
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    path = _cache_path(name, seasons)
+    path = CACHE_DIR / f"{name}_{season}.parquet"
     if path.exists() and not refresh:
         return pd.read_parquet(path)
-    frame = builder()
+    frame = builder(season)
     frame.to_parquet(path, index=False)
     return frame
+
+
+def _by_season(name: str, seasons: list[int], builder, refresh: bool) -> pd.DataFrame:
+    return pd.concat([_season(name, s, builder, refresh) for s in seasons],
+                     ignore_index=True)
 
 
 # ---------------------------------------------------------------------------
 # Play-by-play derived usage
 # ---------------------------------------------------------------------------
+
+def load_pbp(seasons: list[int], refresh: bool = False) -> pd.DataFrame:
+    """Regular-season play-by-play, trimmed to the columns used here.
+
+    Usage and team environment are both built from it, so it is cached on its
+    own and the largest download in the pipeline happens once.
+    """
+
+    def build(season: int) -> pd.DataFrame:
+        pbp = _nfl().load_pbp([season]).select(PBP_COLUMNS).to_pandas()
+        return pbp[pbp["season_type"] == "REG"].reset_index(drop=True)
+
+    return _by_season("pbp", seasons, build, refresh)
+
 
 def _usage_from_pbp(pbp: pd.DataFrame) -> pd.DataFrame:
     """Derive per-player per-game usage that nflverse does not ship directly.
@@ -114,89 +199,63 @@ def _usage_from_pbp(pbp: pd.DataFrame) -> pd.DataFrame:
 
 
 def load_weekly(seasons: list[int], refresh: bool = False) -> pd.DataFrame:
-    """Per-player per-game stat lines joined to derived usage."""
+    """Per-player per-game stat lines joined to derived usage and snap share."""
 
-    def build() -> pd.DataFrame:
-        import nfl_data_py as nfl
+    def build(season: int) -> pd.DataFrame:
+        nfl = _nfl()
+        stats = nfl.load_player_stats([season], summary_level="week").to_pandas()
+        base = stats.loc[(stats["season_type"] == "REG")
+                         & stats["position"].isin(POSITIONS), WEEKLY_COLUMNS]
+        base = base.rename(columns=STAT_RENAMES)
+        base["fumble_lost"] = base[FUMBLES_LOST].fillna(0).sum(axis=1)
+        base["two_point"] = base[TWO_POINT].fillna(0).sum(axis=1)
+        base = base.drop(columns=FUMBLES_LOST + TWO_POINT)
 
-        base = nfl.import_weekly_data(seasons, downcast=True)
-        base = base[base["position"].isin(POSITIONS)].copy()
-        base = base.rename(
-            columns={
-                "passing_yards": "pass_yd",
-                "passing_tds": "pass_td",
-                "interceptions": "interception",
-                "rushing_yards": "rush_yd",
-                "rushing_tds": "rush_td",
-                "receptions": "reception",
-                "receiving_yards": "rec_yd",
-                "receiving_tds": "rec_td",
-                "recent_team": "team",
-            }
-        )
-        base["fumble_lost"] = (
-            base.get("sack_fumbles_lost", 0)
-            + base.get("rushing_fumbles_lost", 0)
-            + base.get("receiving_fumbles_lost", 0)
-        )
-        base["two_point"] = (
-            base.get("passing_2pt_conversions", 0)
-            + base.get("rushing_2pt_conversions", 0)
-            + base.get("receiving_2pt_conversions", 0)
-        )
+        # The stat file already carries official target and carry counts, and
+        # its own share columns were dropped above, so every share comes from
+        # play-by-play against one set of team denominators. Overlapping
+        # names would otherwise come back as targets_x and targets_y, which
+        # the feature layer silently reads as missing.
+        pbp = load_pbp([season], refresh)
+        games = pbp[["game_id", "season", "week"]].drop_duplicates()
+        usage = (_usage_from_pbp(pbp)
+                 .merge(games, on="game_id", how="left", validate="m:1")
+                 .drop(columns=["game_id", "posteam", "targets", "carries"]))
+        merged = base.merge(usage, on=["player_id", "season", "week"],
+                            how="left", validate="1:1")
 
-        pbp = nfl.import_pbp_data(seasons, downcast=True, cache=False)
-        usage = _usage_from_pbp(pbp)
-        game_keys = pbp[["game_id", "season", "week"]].drop_duplicates()
-        usage = usage.merge(game_keys, on="game_id", how="left")
+        # Snap counts are keyed by Pro Football Reference id, which the stat
+        # file lacks, so the master player table supplies it. Seasonal
+        # rosters carry one too, but it is missing for a fifth of 2022 and
+        # sometimes wrong (in 2023 Tyler Conklin carries Ryan Izzo's), so the
+        # roster only fills gaps, alongside the draft capital and experience
+        # the role priors need. Team is part of the snap join because the
+        # snap file itself reuses an id: in 2021 two players share DaviJa06.
+        roster = load_rosters([season], refresh)[
+            ["player_id", "pfr_id", "years_exp", "draft_number"]]
+        merged = merged.merge(roster, on="player_id", how="left", validate="m:1")
+        merged["pfr_id"] = merged["player_id"].map(_pfr_ids()).fillna(merged["pfr_id"])
 
-        merged = base.merge(
-            usage.drop(columns=["posteam"]),
-            on=["player_id", "season", "week"],
-            how="left",
-        )
+        snaps = nfl.load_snap_counts([season]).to_pandas()
+        snaps = (snaps.loc[(snaps["game_type"] == "REG") & snaps["pfr_player_id"].notna(),
+                           ["pfr_player_id", "season", "week", "team", "offense_pct"]]
+                 .rename(columns={"pfr_player_id": "pfr_id", "offense_pct": "snap_share"}))
+        merged = merged.merge(snaps, on=["pfr_id", "season", "week", "team"],
+                              how="left", validate="m:1")
 
-        snaps = nfl.import_snap_counts(seasons)
-        snaps = snaps.rename(columns={"pfr_player_id": "pfr_id"})
-        merged = merged.merge(
-            snaps[["pfr_id", "season", "week", "offense_pct"]],
-            left_on=["pfr_id", "season", "week"],
-            right_on=["pfr_id", "season", "week"],
-            how="left",
-        ).rename(columns={"offense_pct": "snap_share"})
-
-        # FTN charting adds route participation and pressure context, but only
-        # from 2022. Older seasons fall back to an estimate from target volume.
-        ftn_seasons = [s for s in seasons if s >= FTN_FIRST_SEASON]
-        if ftn_seasons:
-            try:
-                ftn = nfl.import_ftn_data(ftn_seasons)
-                routes = (
-                    ftn.groupby(["nflverse_game_id", "season", "week"], observed=True)
-                    .agg(is_motion=("is_motion", "mean"), n_offense=("n_offense_backfield", "mean"))
-                    .reset_index()
-                )
-                merged = merged.merge(
-                    routes.rename(columns={"nflverse_game_id": "game_id"}),
-                    on=["season", "week"], how="left",
-                )
-            except Exception:
-                pass
-
+        merged["routes"] = merged["team_pass_att"] * merged["snap_share"] * ROUTES_PER_PASS_SNAP
         return merged
 
-    return _cached("weekly", seasons, build, refresh)
+    return _by_season("weekly", seasons, build, refresh)
 
 
 def load_team_week(seasons: list[int], refresh: bool = False) -> pd.DataFrame:
     """Offensive environment per team per game: pace, pass rate over expected,
     efficiency and the line play that sits underneath every skill player."""
 
-    def build() -> pd.DataFrame:
-        import nfl_data_py as nfl
-
-        pbp = nfl.import_pbp_data(seasons, downcast=True, cache=False)
-        pbp = pbp[pbp["play_type"].isin(["pass", "run"])].copy()
+    def build(season: int) -> pd.DataFrame:
+        pbp = load_pbp([season], refresh)
+        pbp = pbp[pbp["play_type"].isin(["pass", "run"])]
         neutral = pbp[(pbp["wp"].between(0.2, 0.8)) & (pbp["half_seconds_remaining"] > 120)]
 
         pace = (
@@ -220,72 +279,65 @@ def load_team_week(seasons: list[int], refresh: bool = False) -> pd.DataFrame:
         out["proe"] = out["pass_rate"] - out["xpass"]
         return out.rename(columns={"posteam": "team"})
 
-    return _cached("team_week", seasons, build, refresh)
+    return _by_season("team_week", seasons, build, refresh)
 
 
-def load_defense(seasons: list[int], refresh: bool = False) -> pd.DataFrame:
-    """What each defence allows, by position, adjusted for how many plays they
-    face. Raw points allowed punishes slow defences unfairly."""
+def load_defense(weekly: pd.DataFrame) -> pd.DataFrame:
+    """What each defence allows, by position. The adjustment for how many
+    plays they face happens in features.opponent_strength.
 
-    def build() -> pd.DataFrame:
-        weekly = load_weekly(seasons)
-        import nfl_data_py as nfl
-
-        sched = nfl.import_schedules(seasons)
-        long = pd.concat([
-            sched[["season", "week", "home_team", "away_team"]].rename(
-                columns={"home_team": "team", "away_team": "opponent"}),
-            sched[["season", "week", "away_team", "home_team"]].rename(
-                columns={"away_team": "team", "home_team": "opponent"}),
-        ])
-        w = weekly.merge(long, on=["season", "week", "team"], how="left")
-        from .scoring import actual_points
-        w["pts"] = actual_points(w, "ppr")
-        out = (
-            w.groupby(["season", "week", "opponent", "position"], observed=True)
-            .agg(pts_allowed=("pts", "sum"),
-                 targets_allowed=("targets", "sum"),
-                 air_yards_allowed=("air_yards", "sum"))
-            .reset_index()
-            .rename(columns={"opponent": "defteam"})
-        )
-        return out
-
-    return _cached("defense", seasons, build, refresh)
+    Derived from the weekly table rather than downloaded, so it needs no cache.
+    """
+    w = weekly.assign(pts=actual_points(weekly, "ppr"))
+    return (
+        w.groupby(["season", "week", "opponent_team", "position"], observed=True)
+        .agg(pts_allowed=("pts", "sum"),
+             targets_allowed=("targets", "sum"),
+             air_yards_allowed=("air_yards", "sum"))
+        .reset_index()
+        .rename(columns={"opponent_team": "defteam"})
+    )
 
 
-def load_schedule(season: int, refresh: bool = False) -> pd.DataFrame:
-    """Remaining games with spreads and totals, for game-script projection."""
+def load_schedule(seasons: list[int], refresh: bool = False) -> pd.DataFrame:
+    """Every regular-season game with spreads and totals, for game-script
+    projection. Past seasons are needed too: without them every training row
+    loses its opponent and its Vegas context."""
 
-    def build() -> pd.DataFrame:
-        import nfl_data_py as nfl
-
-        sched = nfl.import_schedules([season])
+    def build(season: int) -> pd.DataFrame:
+        sched = _nfl().load_schedules([season]).to_pandas()
         cols = ["season", "week", "home_team", "away_team", "spread_line",
                 "total_line", "roof", "surface", "result"]
-        return sched[[c for c in cols if c in sched.columns]]
+        return sched.loc[sched["game_type"] == "REG", cols].reset_index(drop=True)
 
-    return _cached("schedule", [season], build, refresh)
+    return _by_season("schedule", seasons, build, refresh)
 
 
-def load_rosters(season: int, refresh: bool = False) -> pd.DataFrame:
-    def build() -> pd.DataFrame:
-        import nfl_data_py as nfl
+def load_rosters(seasons: list[int], refresh: bool = False) -> pd.DataFrame:
+    def build(season: int) -> pd.DataFrame:
+        r = _nfl().load_rosters([season]).to_pandas()
+        r = r.rename(columns={"gsis_id": "player_id", "full_name": "player_name"})
+        r = r.dropna(subset=["player_id"]).drop_duplicates("player_id", keep="last")
+        born = pd.to_datetime(r["birth_date"], errors="coerce")
+        r["age"] = (pd.Timestamp(season, 9, 1) - born).dt.days / 365.25
+        cols = ["player_id", "season", "player_name", "position", "team", "pfr_id",
+                "age", "years_exp", "draft_number", "status"]
+        return r[cols].reset_index(drop=True)
 
-        r = nfl.import_seasonal_rosters([season])
-        cols = ["player_id", "player_name", "position", "team", "age",
-                "years_exp", "draft_number", "height", "weight", "status"]
-        return r[[c for c in cols if c in r.columns]]
-
-    return _cached("rosters", [season], build, refresh)
+    return _by_season("rosters", seasons, build, refresh)
 
 
 def load_all(seasons: list[int] | None = None, refresh: bool = False) -> dict:
-    seasons = seasons or list(range(CURRENT_SEASON - 5, CURRENT_SEASON + 1))
+    # project.py appends the target season to the training seasons, so a
+    # historical run would otherwise load that season twice.
+    seasons = sorted(set(seasons or range(CURRENT_SEASON - 5, CURRENT_SEASON + 1)))
+    weekly = load_weekly(seasons, refresh)
+    rosters = load_rosters(seasons, refresh)
     return {
-        "weekly": load_weekly(seasons, refresh),
+        "weekly": weekly,
         "team_week": load_team_week(seasons, refresh),
-        "defense": load_defense(seasons, refresh),
-        "schedule": load_schedule(CURRENT_SEASON, refresh),
-        "rosters": load_rosters(CURRENT_SEASON, refresh),
+        "defense": load_defense(weekly),
+        "schedule": load_schedule(seasons, refresh),
+        # project.py indexes this by player id, so it holds one season only.
+        "rosters": rosters[rosters["season"] == max(seasons)],
     }

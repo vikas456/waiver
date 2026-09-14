@@ -16,7 +16,10 @@ def current_week(today: date | None = None, season: int = CURRENT_SEASON) -> int
     opener = SEASON_OPENER.get(season)
     if opener is None:
         return 1
-    weeks = (today - opener).days // 7 + 1
+    # A week runs Thursday to Monday, so from the Tuesday after, the week just
+    # played is history and the next one is upcoming. Counting from Thursday
+    # alone would have the Tuesday rebuild re-project a finished week.
+    weeks = ((today - opener).days + 2) // 7 + 1
     return max(1, min(18, weeks))
 
 

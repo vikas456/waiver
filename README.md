@@ -104,5 +104,4 @@ of sample, it is not better than what already exists.
 ## Data
 
 All data comes from [nflverse](https://github.com/nflverse), which is free and
-open. FTN charting data is CC-BY-SA 4.0 and attribution is due to FTN Data via
-nflverse.
+open.

@@ -804,8 +804,11 @@ async function boot() {
     $('#dataStamp').textContent = 'Demo data \u00b7 not real players';
     $('#dataStamp').classList.add('warn-stamp');
   } else {
+    const form = meta.earlySeason
+      ? 'early season, form partly from last season'
+      : `through week ${meta.fromWeek - 1}`;
     $('#dataStamp').textContent =
-      `Season ${meta.season} \u00b7 through week ${meta.fromWeek - 1} \u00b7 updated ` +
+      `Season ${meta.season} \u00b7 ${form} \u00b7 updated ` +
       stamp.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 

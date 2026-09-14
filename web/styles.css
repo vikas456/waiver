@@ -20,6 +20,11 @@
 
 * { box-sizing: border-box; }
 
+/* Any rule that sets display outranks the hidden attribute. Without this the
+   sheet's scrim, which is display: flex, stays over the page and swallows
+   every click. */
+[hidden] { display: none !important; }
+
 html { -webkit-text-size-adjust: 100%; }
 
 body {
