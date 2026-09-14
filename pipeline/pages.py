@@ -43,6 +43,8 @@ FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
   <a href="/terms/">Terms</a>
   <a href="/privacy/">Privacy</a>
 </footer>"""
+# The AdSense publisher id, as in web/ads.txt and web/ads.js.
+ADSENSE_CLIENT = "ca-pub-1730230746444804"
 # The one ad placement, after each page's main content, as in web/index.html.
 # web/ads.js fills and reveals it once the AdSense ids are set.
 AD_SLOT = """  <aside class="ad-slot" aria-label="Advertisement" hidden>
@@ -133,6 +135,7 @@ def _shell(meta: dict, path: str, title: str, description: str, body: str,
 <meta property="og:description" content="{e(description)}">
 <meta property="og:image" content="{SITE}/og-image.png">
 <meta property="og:image:alt" content="Waiver: who should you pick up? Fantasy football waiver picks from an AI model.">
+<meta name="google-adsense-account" content="{ADSENSE_CLIENT}">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">

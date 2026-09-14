@@ -7,7 +7,7 @@
  * slot again (see .ad-slot in styles.css).
  */
 (() => {
-  const CLIENT = '';  // publisher id: ca-pub- followed by 16 digits
+  const CLIENT = 'ca-pub-1730230746444804';  // publisher id, as in /ads.txt
   const SLOT = '';    // the ad unit's id, from AdSense > Ads > By ad unit
 
   const slots = document.querySelectorAll('.ad-slot');
