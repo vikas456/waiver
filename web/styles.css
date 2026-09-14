@@ -173,6 +173,17 @@ main {
 .answer { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; padding-top: 0.625rem; }
 .answer-title { font-size: 2rem; font-weight: 500; line-height: 1.12; letter-spacing: -0.02em; text-wrap: balance; }
 .answer-sub { font-size: 0.9375rem; line-height: 1.55; color: var(--ink-2); max-width: 52ch; }
+.share {
+  display: inline-flex; align-items: center; gap: 0.5rem; margin-top: 0.375rem;
+  min-height: 2.25rem; padding: 0 0.875rem;
+  background: none; border: 1px solid var(--line-2); border-radius: 1.125rem;
+  font: inherit; font-size: 0.8125rem; color: var(--ink); cursor: pointer;
+}
+.share:hover { border-color: var(--pine); color: var(--pine); }
+.share svg {
+  width: 0.875rem; height: 0.875rem;
+  fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+}
 .flip {
   margin-top: 0.25rem; font-size: 0.8125rem; color: var(--amber);
   background: var(--amber-soft); padding: 0.625rem 0.75rem; border-radius: 8px;

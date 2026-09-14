@@ -507,6 +507,7 @@ function rangeLabel() {
 // every time a player or a setting changes.
 function render() {
   const n = state.picked.length;
+  syncUrl();
   $('#intro').hidden = n > 0;
   $('#why').hidden = n > 0;
   $('#hint').hidden = n !== 1;
@@ -531,6 +532,80 @@ function render() {
   const flip = flipNote(rows, state.fromWeek, state.toWeek);
   $('#flipNote').textContent = flip || '';
   $('#flipNote').hidden = !flip;
+}
+
+/* -- Sharing ------------------------------------------------------------- */
+
+// The comparison lives in the address, so it can be sent to a league chat
+// and opens exactly as it was, settings and all. Defaults are left out to
+// keep shared links short.
+function comparisonParams() {
+  const q = new URLSearchParams();
+  if (state.picked.length) q.set('p', state.picked.map(p => p.id).join(','));
+  if (state.preset !== 'rest') q.set('w', `${state.fromWeek}-${state.toWeek}`);
+  if (state.format !== 'ppr') q.set('s', state.format);
+  if (state.tePremium) q.set('te', String(state.tePremium));
+  if (state.leagueSize !== 12) q.set('l', String(state.leagueSize));
+  return q;
+}
+
+function syncUrl() {
+  // Anything else on the address, such as an ad's tracking tags, is kept so
+  // analytics can still see where a visit came from.
+  const q = new URLSearchParams(location.search);
+  for (const key of ['p', 'w', 's', 'te', 'l']) q.delete(key);
+  for (const [key, value] of comparisonParams()) q.set(key, value);
+  // Commas are legal in a query string, and "a,b" reads better in a group
+  // chat than "a%2Cb".
+  const s = q.toString().replace(/%2C/g, ',');
+  history.replaceState(null, '', s ? `?${s}` : location.pathname);
+}
+
+function readUrl() {
+  const q = new URLSearchParams(location.search);
+  const meta = state.data.meta;
+  if (meta.scoringFormats[q.get('s')]) state.format = q.get('s');
+  const te = Number(q.get('te'));
+  if ([0.5, 1].includes(te)) state.tePremium = te;
+  const league = Number(q.get('l'));
+  if ([8, 10, 12, 14, 16].includes(league)) state.leagueSize = league;
+
+  // A link from an earlier week may start before this week's projections do.
+  const [from, to] = (q.get('w') || '').split('-').map(Number);
+  if (from && to) {
+    const a = Math.max(from, meta.fromWeek);
+    const b = Math.min(to, meta.throughWeek);
+    if (a <= b) {
+      state.fromWeek = a;
+      state.toWeek = b;
+      state.preset = a === meta.fromWeek && b === meta.throughWeek ? 'rest'
+        : a === meta.fromWeek && b === a ? 'week'
+        : a === 15 && b === Math.min(17, meta.throughWeek) ? 'playoffs' : 'custom';
+    }
+  }
+
+  const ids = (q.get('p') || '').split(',').filter(Boolean);
+  const byId = new Map(state.data.players.map(p => [p.id, p]));
+  state.picked = ids.map(id => byId.get(id)).filter(Boolean).slice(0, 8);
+  if (state.picked.length < ids.length) {
+    showError('Some players from this link are not in this week’s projections.');
+  }
+}
+
+async function share() {
+  const label = $('#shareLabel');
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: 'Waiver', text: $('#answerTitle').textContent, url: location.href });
+      return;
+    }
+    await navigator.clipboard.writeText(location.href);
+    label.textContent = 'Link copied';
+  } catch (err) {
+    if (err && err.name === 'AbortError') return;
+    label.textContent = 'Copy the address bar to share';
+  }
+  setTimeout(() => { label.textContent = 'Share this pick'; }, 2000);
 }
 
 /* -- Entry UI ------------------------------------------------------------ */
@@ -739,6 +814,7 @@ function wire() {
   $('#weekSetting').addEventListener('click', () => openSheet('weeks'));
   $('#formatSetting').addEventListener('click', () => openSheet('format'));
   $('#leagueSetting').addEventListener('click', () => openSheet('league'));
+  $('#share').addEventListener('click', share);
   $('#sheetClose').addEventListener('click', closeSheet);
   $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeSheet(); });
   document.addEventListener('keydown', e => {
@@ -804,6 +880,7 @@ async function boot() {
       stamp.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   }
 
+  readUrl();
   syncSettings();
   render();
   wire();
