@@ -34,6 +34,11 @@ jobs:
           print(f"ok — {len(d['players'])} players")
           PY
 
+      - name: Build the search pages from that payload
+        run: |
+          python -m pipeline.pages --out "$RUNNER_TEMP/pages" --no-trending
+          test -f "$RUNNER_TEMP/pages/rankings/qb/index.html"
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

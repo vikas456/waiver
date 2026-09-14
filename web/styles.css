@@ -169,6 +169,38 @@ main {
 .why-list li > span { font-size: 0.8125rem; line-height: 1.55; color: var(--ink-2); }
 .why-note { font-size: 0.75rem; line-height: 1.6; color: var(--ink-3); }
 
+/* Search pages and footer ------------------------------------------------*/
+a.wordmark { text-decoration: none; }
+.board { display: flex; flex-direction: column; gap: 1.125rem; padding-top: 0.75rem; }
+.board h1 { text-wrap: balance; }
+.board a { color: var(--pine); }
+.board-nav { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.board-nav a {
+  display: inline-flex; align-items: center; min-height: 2.25rem; padding: 0 0.875rem;
+  border: 1px solid var(--line); border-radius: 1.125rem;
+  font-size: 0.8125rem; color: var(--ink-2); text-decoration: none;
+}
+.board-nav a[aria-current="page"] { border-color: var(--pine); color: var(--ink); }
+.board-table-wrap { overflow-x: auto; }
+.board-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.board-table th {
+  text-align: left; font-weight: 500; font-size: 0.75rem; color: var(--ink-3);
+  padding: 0.5rem; border-bottom: 1px solid var(--line); white-space: nowrap;
+}
+.board-table td { padding: 0.625rem 0.5rem; border-bottom: 1px solid var(--line); }
+.board-table .num { text-align: right; }
+.board-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.board-list li { display: flex; flex-direction: column; gap: 0.125rem; padding: 0.875rem 0; border-bottom: 1px solid var(--line); }
+.board-list span { font-size: 0.8125rem; color: var(--ink-3); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.site-footer {
+  max-width: var(--measure); margin: 0 auto; padding: 0 1.25rem 3rem;
+  display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; font-size: 0.8125rem;
+}
+.site-footer a { color: var(--ink-3); text-decoration: none; }
+.site-footer a:hover { color: var(--pine); }
+
 /* Answer -----------------------------------------------------------------*/
 .answer { display: flex; flex-direction: column; align-items: flex-start; gap: 0.5rem; padding-top: 0.625rem; }
 .answer-title { font-size: 2rem; font-weight: 500; line-height: 1.12; letter-spacing: -0.02em; text-wrap: balance; }

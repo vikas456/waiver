@@ -322,13 +322,16 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
                 },
             }
         mean = float(max(ppr_pts.iloc[i], 0.0))
+        # Two decimal places, and no zero components (the site reads a missing
+        # stat as zero), keep the file every visitor downloads a quarter smaller.
+        line = {s: round(float(preds[s].iloc[i]), 2) for s in STAT_COMPONENTS}
         players[pid]["weeks"].append({
             "w": int(row["week"]),
             "opp": row["opponent"],
             "p": week_prob[pid].get(int(row["week"]), players[pid]["playProb"]),
-            "c": {s: round(float(preds[s].iloc[i]), 3) for s in STAT_COMPONENTS},
+            "c": {s: v for s, v in line.items() if v},
             "sd": round(simulate.sd_for(mean, row["position"], variance), 2),
-            "drivers": {g: round(float(drivers[g].iloc[i]), 3)
+            "drivers": {g: round(float(drivers[g].iloc[i]), 2)
                         for g in drivers.columns if abs(drivers[g].iloc[i]) > 0.01},
         })
 

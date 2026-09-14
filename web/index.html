@@ -12,7 +12,20 @@
 <meta property="og:url" content="https://fantasywaiverpicks.com/">
 <meta property="og:title" content="Waiver — who should you pick up?">
 <meta property="og:description" content="Compare free agents and get a clear pick, with the reasons behind it.">
-<meta name="twitter:card" content="summary">
+<meta property="og:image" content="https://fantasywaiverpicks.com/og-image.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="data/projections.json" as="fetch" crossorigin>
+<script type="application/ld+json">
+{"@context": "https://schema.org", "@graph": [
+  {"@type": "WebSite", "name": "Waiver", "url": "https://fantasywaiverpicks.com/"},
+  {"@type": "WebApplication", "name": "Waiver", "url": "https://fantasywaiverpicks.com/",
+   "applicationCategory": "SportsApplication", "operatingSystem": "Any",
+   "description": "Compare fantasy football free agents and get a clear pick, from an AI model trained on every NFL play and tested against expert rankings.",
+   "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}}
+]}
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet">
@@ -29,9 +42,9 @@
   <section class="panel" id="panel">
     <div class="intro" id="intro">
       <h1>Who should you pick up?</h1>
-      <p class="lede">Add two or more free agents. We rank them on the usage and
-        efficiency that predicts the rest of the season, not the points they
-        already scored.</p>
+      <p class="lede">Add two or more fantasy football free agents. Waiver ranks them
+        on the usage and efficiency that predicts the rest of the season, not the
+        points they already scored.</p>
     </div>
 
     <div class="search" role="search">
@@ -85,6 +98,16 @@
     <p class="footnote" id="footnote" hidden></p>
   </section>
 </main>
+
+<footer class="site-footer" aria-label="More from Waiver">
+  <a href="/">Compare players</a>
+  <a href="/waiver-wire/">Waiver pickups</a>
+  <a href="/rankings/">Rankings</a>
+  <a href="/rankings/qb/">QB</a>
+  <a href="/rankings/rb/">RB</a>
+  <a href="/rankings/wr/">WR</a>
+  <a href="/rankings/te/">TE</a>
+</footer>
 
 <!-- Settings dialog -->
 <div class="scrim" id="scrim" hidden>

@@ -146,6 +146,9 @@ pipeline/
   project.py      builds web/data/projections.json
   backtest.py     walk-forward validation against baselines
   doctor.py       checks each nflverse loader against one season
+  market.py       FantasyPros consensus ranks, and blending with them
+  availability.py depth charts and injury reports, per week
+  pages.py        ranking and waiver pages for search engines
 web/
   index.html, styles.css, app.js, data/projections.json
 ```
