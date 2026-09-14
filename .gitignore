@@ -1,0 +1,21 @@
+# Downloaded nflverse data. Several gigabytes, and rebuildable with one command.
+data/cache/
+data/raw/
+
+# Trained models. Rebuilt every week by the pipeline, so there is no reason to
+# carry binary artefacts in history.
+models/
+
+# The self-contained demo page, generated from web/ by tools/build_demo.py.
+web/demo.html
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+.DS_Store
+.idea/
+.vscode/
+*.swp

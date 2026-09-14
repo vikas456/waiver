@@ -1,0 +1,64 @@
+name: Weekly projections
+
+# Tuesday morning, after Monday night football has settled into the data.
+# A second run on Friday and Sunday catches injury designations and inactives.
+on:
+  schedule:
+    - cron: "0 13 * * 2"
+    - cron: "0 16 * * 5"
+    - cron: "0 15 * * 0"
+  workflow_dispatch:
+    inputs:
+      from_week:
+        description: "First week to project"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Restore nflverse cache
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: nflverse-${{ github.run_id }}
+          restore-keys: nflverse-
+
+      - name: Work out the upcoming week
+        id: week
+        run: |
+          if [ -n "${{ inputs.from_week }}" ]; then
+            echo "value=${{ inputs.from_week }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$(python -m pipeline.current_week)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build projections
+        run: python -m pipeline.project --source nflverse --from-week ${{ steps.week.outputs.value }}
+
+      - name: Archive this week's projections
+        run: |
+          mkdir -p web/data/history
+          cp web/data/projections.json "web/data/history/week-${{ steps.week.outputs.value }}.json"
+
+      - name: Commit
+        run: |
+          git config user.name  "projections-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add web/data
+          git diff --staged --quiet || git commit -m "Projections for week ${{ steps.week.outputs.value }}"
+          git push

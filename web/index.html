@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waiver — who should you pick up?</title>
+<meta name="description" content="Rank NFL free agents for the rest of your fantasy season using usage and efficiency data, not box scores.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="masthead">
+  <span class="wordmark">Waiver</span>
+  <span class="meta" id="dataStamp">Loading data</span>
+</header>
+
+<main id="main">
+
+  <!-- Entry -->
+  <section class="panel" id="entryPanel">
+    <h1>Who should you pick up?</h1>
+    <p class="lede">Add two or more free agents. We rank them on the usage and
+      efficiency that predicts the rest of the season, not the points they
+      already scored.</p>
+
+    <div class="search" role="search">
+      <svg class="search-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M13.5 13.5 L17 17"/></svg>
+      <input id="search" type="text" autocomplete="off" spellcheck="false"
+             placeholder="Search players" aria-label="Search players"
+             aria-expanded="false" aria-controls="suggestions" role="combobox">
+      <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
+    </div>
+
+    <ul id="picked" class="picked" aria-label="Players to compare"></ul>
+    <p id="entryError" class="error" hidden></p>
+
+    <div class="settings">
+      <button class="setting" id="weekSetting" type="button" aria-haspopup="dialog">
+        <span class="setting-label">Weeks</span>
+        <span class="setting-value" id="weekValue">Rest of season</span>
+      </button>
+      <button class="setting" id="formatSetting" type="button" aria-haspopup="dialog">
+        <span class="setting-label">Scoring</span>
+        <span class="setting-value" id="formatValue">Full PPR</span>
+      </button>
+      <button class="setting" id="leagueSetting" type="button" aria-haspopup="dialog">
+        <span class="setting-label">League</span>
+        <span class="setting-value" id="leagueValue">12 teams</span>
+      </button>
+      <button class="setting" id="needSetting" type="button" aria-haspopup="dialog">
+        <span class="setting-label">I need</span>
+        <span class="setting-value" id="needValue">Any position</span>
+      </button>
+    </div>
+
+    <button class="primary" id="compare" type="button" disabled>Add two players to compare</button>
+  </section>
+
+  <!-- Results -->
+  <section class="panel" id="resultsPanel" hidden>
+    <div class="results-head">
+      <div>
+        <h2 id="resultsTitle">Rest-of-season ranking</h2>
+        <p class="meta" id="resultsMeta"></p>
+      </div>
+      <button class="ghost" id="back" type="button">Start over</button>
+    </div>
+
+    <p class="verdict" id="verdict"></p>
+    <p class="flip" id="flipNote" hidden></p>
+
+    <ol class="ranking" id="ranking"></ol>
+
+    <p class="footnote">
+      Projected points per game are the average of simulated outcomes across
+      the selected weeks, with byes and the chance of missing a game already
+      priced in. Value over replacement compares each player against the best
+      freely available player at his own position in a league your size, which
+      is why a tight end can outrank a receiver who scores more.
+    </p>
+  </section>
+
+</main>
+
+<!-- Settings dialog -->
+<div class="scrim" id="scrim" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" id="sheet">
+    <div class="sheet-head">
+      <h3 id="sheetTitle">Weeks to project</h3>
+      <button class="icon" id="sheetClose" type="button" aria-label="Close">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5 L15 15 M15 5 L5 15"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body" id="sheetBody"></div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

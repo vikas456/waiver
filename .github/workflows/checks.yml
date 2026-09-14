@@ -1,0 +1,41 @@
+name: Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+
+      # The synthetic path exercises features, training, simulation and the
+      # explanation layer without touching the network, so a broken pipeline
+      # fails here rather than during the Tuesday rebuild.
+      - name: Build projections from synthetic data
+        run: python -m pipeline.project --source synthetic --from-week 11 --rounds 60
+
+      - name: Check the payload is well formed
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          d = json.loads(pathlib.Path("web/data/projections.json").read_text())
+          assert d["players"], "no players in payload"
+          for p in d["players"][:50]:
+              assert p["weeks"], f"{p['name']} has no projected weeks"
+              assert 0 <= p["playProb"] <= 1
+          print(f"ok — {len(d['players'])} players")
+          PY
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check the client parses
+        run: node --check web/app.js
