@@ -243,7 +243,16 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
           source: str = "nflverse") -> dict:
     sched = data["schedule"]
     through = int(sched.loc[sched["season"] == season, "week"].max())
+    # Depth charts, injury reports and reserve lists only describe the season
+    # in progress.
+    avail = (availability.load(season)
+             if source == "nflverse" and season == CURRENT_SEASON else None)
     ranks = market.ranks_before(pd.Timestamp.now()) if source == "nflverse" else None
+    if ranks is not None and avail:
+        # A consensus rank already prices in the games a player on reserve will
+        # miss, and his chance of playing counts them again. He keeps the
+        # model's number for the games he does play.
+        ranks = ranks.drop(list(availability.on_reserve(avail, from_week)), errors="ignore")
     weight = MARKET_WEIGHT_EARLY if from_week < FULL_FORM_FROM_WEEK else MARKET_WEIGHT
     fc = forecast(data, season, from_week, through, rounds, verbose, ranks, weight)
     future, preds, comp_bundle = fc["future"], fc["preds"], fc["bundle"]
@@ -271,9 +280,6 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
     so_far = (weekly[(weekly["season"] == season) & (weekly["week"] < from_week)]
               .groupby("player_id")["week"].count())
 
-    # Depth charts and injury reports only describe the season in progress.
-    avail = (availability.load(season)
-             if source == "nflverse" and season == CURRENT_SEASON else None)
     week_prob: dict[str, dict[int, float]] = {}
 
     players: dict[str, dict] = {}
@@ -289,11 +295,11 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
                 snap_load=float(row.get("snap_share_adj", 0.5) or 0.5),
                 designation="healthy",
             )
-            status = info.get("status") if hasattr(info, "get") else None
             week_prob[pid] = (
-                availability.by_week(pid, row["position"], row["team"], status, play_prob,
+                availability.by_week(pid, row["position"], row["team"], play_prob,
                                      list(range(from_week, through + 1)), from_week, avail)
                 if avail else {})
+            injury = availability.current(pid, from_week, avail) if avail else None
             players[pid] = {
                 "id": pid,
                 "name": row["player_name"],
@@ -321,6 +327,8 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
                                     else int(row.get("games_played", 0) or 0)),
                 },
             }
+            if injury:
+                players[pid]["injury"] = {"status": injury["label"], "detail": injury["detail"]}
         mean = float(max(ppr_pts.iloc[i], 0.0))
         # Two decimal places, and no zero components (the site reads a missing
         # stat as zero), keep the file every visitor downloads a quarter smaller.

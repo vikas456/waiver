@@ -14,14 +14,15 @@ from __future__ import annotations
 
 import argparse
 import html
+import itertools
 import json
 import re
 import shutil
 import unicodedata
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
+from . import sleeper
 from .config import POSITIONS, REPLACEMENT_RANK_PER_TEAM
 
 SITE = "https://fantasywaiverpicks.com"
@@ -29,7 +30,6 @@ LEAGUE_SIZE = 12
 # How deep each ranking goes: roughly everyone worth a roster spot.
 DEPTH = {"QB": 32, "RB": 60, "WR": 72, "TE": 32}
 NAMES = {"QB": "quarterback", "RB": "running back", "WR": "wide receiver", "TE": "tight end"}
-TRENDING = "https://api.sleeper.app/v1/players/nfl/trending/add?lookback_hours=48&limit=50"
 ANALYTICS = re.compile(r"<!-- Cloudflare Web Analytics -->.*?<!-- End Cloudflare Web Analytics -->", re.S)
 
 FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
@@ -64,6 +64,14 @@ def expected_ppg(player: dict, weights: dict) -> float:
     return total / len(weeks)
 
 
+def when_playing(player: dict, weights: dict) -> float:
+    """Points per game in the games he plays."""
+    weeks = player["weeks"]
+    if not weeks:
+        return 0.0
+    return sum(sum(v * weights.get(k, 0) for k, v in w["c"].items()) for w in weeks) / len(weeks)
+
+
 def replacement_levels(players: list[dict], ppg: dict) -> dict:
     """Mirrors replacementLevels in web/app.js for a 12-team league."""
     by_pos: dict[str, list[float]] = {}
@@ -82,14 +90,7 @@ def trending_adds() -> list[tuple[str, int]]:
     """(gsis id, adds) for the players most added on Sleeper over the last
     two days, or nothing when either source is unavailable."""
     try:
-        import nflreadpy as nfl
-
-        with urllib.request.urlopen(TRENDING, timeout=20) as res:
-            adds = json.load(res)
-        ids = nfl.load_ff_playerids().to_pandas()[["sleeper_id", "gsis_id"]].dropna()
-        sleeper = ids["sleeper_id"].astype(str).str.replace(r"\.0$", "", regex=True)
-        to_gsis = dict(zip(sleeper, ids["gsis_id"]))
-        return [(to_gsis[a["player_id"]], a["count"]) for a in adds if a["player_id"] in to_gsis]
+        return sleeper.trending_adds()
     except Exception as err:
         print(f"  trending adds unavailable ({type(err).__name__}); keeping the last waiver page")
         return []
@@ -186,6 +187,18 @@ def _player_link(p: dict, slug: dict) -> str:
     return f'<a href="/players/{slug[p["id"]]}/">{e(p["name"])}</a>' if p["id"] in slug else e(p["name"])
 
 
+# The shorthand fantasy apps use for injury designations. Mirrors SHORT_STATUS in web/app.js.
+SHORT_STATUS = {"Questionable": "Q", "Doubtful": "D", "Out": "O", "Suspended": "SUS",
+                "Inactive": "NA", "Did not report": "DNR"}
+
+
+def _tag(p: dict) -> str:
+    inj = p.get("injury")
+    if not inj:
+        return ""
+    return f' <span class="tag" title="{e(inj["status"])}">{e(SHORT_STATUS.get(inj["status"], inj["status"]))}</span>'
+
+
 def _item_list(title: str, players: list[dict], slug: dict) -> dict:
     return {
         "@context": "https://schema.org",
@@ -219,7 +232,7 @@ def position_page(meta: dict, pos: str, ranked: list[dict], ppg: dict, slug: dic
     description = (f"Fantasy football rest-of-season {name} rankings for {weeks} in full PPR, "
                    "from an AI model tested against expert rankings. Updated weekly.")
     rows = "\n".join(
-        f'      <tr><td class="num">{i}</td><td>{_player_link(p, slug)}</td><td>{e(p["team"])}</td>'
+        f'      <tr><td class="num">{i}</td><td>{_player_link(p, slug)}{_tag(p)}</td><td>{e(p["team"])}</td>'
         f'<td class="num">{ppg[p["id"]]:.1f}</td><td><a href="/?p={e(p["id"])}">Compare</a></td></tr>'
         for i, p in enumerate(ranked, start=1))
     body = f"""  <section class="board">
@@ -262,25 +275,61 @@ def hub_page(meta: dict, by_pos: dict[str, list[dict]], analytics: str) -> str:
                   [_breadcrumbs(("Rankings", "/rankings/"))])
 
 
+def _status_note(p: dict) -> str:
+    """What is keeping a player off the field, in a sentence, or nothing."""
+    inj, weeks = p.get("injury"), p["weeks"]
+    if not inj or not weeks:
+        return ""
+    chance = lambda w: f"{round(w.get('p', p['playProb']) * 100)}%"
+    detail = f" ({inj['detail'].lower()})" if inj.get("detail") else ""
+    if inj["status"] in ("IR", "PUP"):
+        where = "injured reserve" if inj["status"] == "IR" else "the physically unable to perform list"
+        out = list(itertools.takewhile(lambda w: w.get("p", 1) == 0, weeks))
+        rest = weeks[len(out):]
+        text = f"On {where}{detail}."
+        if out:
+            text += f" He is out through at least week {out[-1]['w']}."
+        if rest:
+            text += (f" His chance of playing is {chance(rest[0])} in week {rest[0]['w']}"
+                     + (f", rising to {chance(rest[-1])} by week {rest[-1]['w']}" if len(rest) > 1 else "")
+                     + ", going by how long players placed on reserve have stayed out since 2022.")
+    elif inj["status"] in ("Out", "Doubtful", "Questionable"):
+        text = (f"Listed as {inj['status'].lower()}{detail} on the latest injury report, so his chance "
+                f"of playing in week {weeks[0]['w']} is {chance(weeks[0])}.")
+    else:
+        text = f"{inj['status']}{detail}: his chance of playing in week {weeks[0]['w']} is {chance(weeks[0])}."
+    return f'<p class="lede"><span class="pill bad">{e(inj["status"])}</span> {e(text)}</p>'
+
+
 def player_page(meta: dict, p: dict, ppg: dict, rank: int, vor: float, weights: dict,
                 analytics: str) -> str:
     pos, name = p["position"], p["name"]
     weeks = f"weeks {meta['fromWeek']}–{meta['throughWeek']}"
+    inj = p.get("injury") or {}
     title = f"{name} fantasy outlook, week {meta['fromWeek']} — Waiver"
-    description = (f"{name} ({pos}, {p['team']}) projects for {ppg[p['id']]:.1f} PPR points per game "
+    reserve = {"IR": "is on injured reserve and ", "PUP": "is on the PUP list and "}.get(inj.get("status"), "")
+    description = (f"{name} ({pos}, {p['team']}) {reserve}projects for {ppg[p['id']]:.1f} PPR points per game "
                    f"over {weeks}, {pos}{rank} in Waiver's rankings. Updated weekly.")
     s = p.get("stats", {})
     pct = lambda v: "—" if v is None else f"{round(v * 100)}%"
-    usage = [("Snap share", s.get("snapShare"))]
+    figures = [("Expected points per game, PPR", f"{ppg[p['id']]:.1f}")]
+    if inj:
+        figures.append(("Points in games he plays", f"{when_playing(p, weights):.1f}"))
+    figures.append(("Over replacement, 12 teams", _signed(vor)))
+    figures.append(("Snap share", pct(s.get("snapShare"))))
     if pos == "RB":
-        usage += [("Carry share", s.get("carryShare")), ("Goal-line share", s.get("glShare"))]
+        figures += [("Carry share", pct(s.get("carryShare"))), ("Goal-line share", pct(s.get("glShare")))]
     elif pos != "QB":
-        usage += [("Target share", s.get("targetShare")), ("Route rate", s.get("routeRate"))]
-    usage_rows = "".join(f"<div><dt>{label}</dt><dd>{pct(v)}</dd></div>" for label, v in usage)
-    schedule = "\n".join(
-        f'      <tr><td class="num">{w["w"]}</td><td>{e(w["opp"])}</td>'
-        f'<td class="num">{sum(v * weights.get(k, 0) for k, v in w["c"].items()):.1f}</td></tr>'
-        for w in p["weeks"])
+        figures += [("Target share", pct(s.get("targetShare"))), ("Route rate", pct(s.get("routeRate")))]
+    figure_rows = "".join(f"<div><dt>{label}</dt><dd>{value}</dd></div>" for label, value in figures)
+
+    def week_row(w: dict) -> str:
+        pts = sum(v * weights.get(k, 0) for k, v in w["c"].items())
+        prob = w.get("p", p["playProb"])
+        return (f'      <tr><td class="num">{w["w"]}</td><td>{e(w["opp"])}</td>'
+                f'<td class="num">{round(prob * 100)}%</td><td class="num">{pts:.1f}</td>'
+                f'<td class="num">{pts * prob:.1f}</td></tr>')
+    schedule = "\n".join(week_row(w) for w in p["weeks"])
     byes = p.get("byeWeeks") or []
     bye_note = f'<p class="footnote">Bye in week {", ".join(map(str, byes))}.</p>' if byes else ""
     photo = (f'<img src="{e(p["headshot"])}" alt="{e(name)}" width="64" height="64">'
@@ -290,16 +339,16 @@ def player_page(meta: dict, p: dict, ppg: dict, rank: int, vor: float, weights: 
       <div><h1>{e(name)} rest-of-season outlook</h1>
       <p class="meta">{e(pos)} · {e(p["team"])} · {e(pos)}{rank} in the rankings</p></div>
     </div>
+    {_status_note(p)}
     <dl class="figures">
-      <div><dt>Points per game, PPR</dt><dd>{ppg[p["id"]]:.1f}</dd></div>
-      <div><dt>Over replacement, 12 teams</dt><dd>{_signed(vor)}</dd></div>
-      {usage_rows}
+      {figure_rows}
     </dl>
-    <p class="lede">Projected for {weeks}, counting the chance he misses a game. The table
-      shows what he projects for in each game he plays.</p>
+    <p class="lede">Expected points count every game from week {meta['fromWeek']} to
+      {meta['throughWeek']}, each weighted by his chance of playing it, so a game he misses
+      counts as zero.</p>
     <div class="board-table-wrap">
     <table class="board-table">
-      <thead><tr><th scope="col" class="num">Week</th><th scope="col">Opponent</th><th scope="col" class="num">Projected points</th></tr></thead>
+      <thead><tr><th scope="col" class="num">Week</th><th scope="col">Opponent</th><th scope="col" class="num">Chance he plays</th><th scope="col" class="num">Points if he plays</th><th scope="col" class="num">Expected points</th></tr></thead>
       <tbody>
 {schedule}
       </tbody>
@@ -321,7 +370,7 @@ def waiver_page(meta: dict, rows: list[tuple[dict, int]], ppg: dict, levels: dic
                    "how much each is projected to help your team for the rest of the season.")
     ranked = sorted(rows, key=lambda r: ppg[r[0]["id"]] - levels[r[0]["position"]], reverse=True)
     table = "\n".join(
-        f'      <tr><td class="num">{i}</td><td>{_player_link(p, slug)}</td><td>{e(p["position"])}</td>'
+        f'      <tr><td class="num">{i}</td><td>{_player_link(p, slug)}{_tag(p)}</td><td>{e(p["position"])}</td>'
         f'<td>{e(p["team"])}</td><td class="num">{ppg[p["id"]]:.1f}</td>'
         f'<td class="num">{_signed(ppg[p["id"]] - levels[p["position"]])}</td>'
         f'<td class="num">{adds:,}</td><td><a href="/?p={e(p["id"])}">Compare</a></td></tr>'
@@ -375,6 +424,12 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     # new site can win are specific ones, such as a player's name.
     featured = {p["id"]: p for group in by_pos.values() for p in group}
     featured.update({p["id"]: p for p, _ in trending})
+    # A player on reserve falls down the rankings, but people still search his
+    # name, so anyone who would rank when healthy keeps his page.
+    healthy = {p["id"]: when_playing(p, weights) for p in players}
+    for pos in POSITIONS:
+        pool = sorted((p for p in players if p["position"] == pos), key=lambda p: healthy[p["id"]], reverse=True)
+        featured.update({p["id"]: p for p in pool[:DEPTH[pos]] if p.get("injury")})
     slug = slugs(list(featured.values()))
     pos_rank = {}
     for pos in POSITIONS:

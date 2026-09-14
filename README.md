@@ -45,8 +45,11 @@ simulated thousands of times, with an availability model layered on top, so
 the floor and ceiling shown are calibrated rather than decorative.
 
 **It knows who plays.** The depth chart decides which quarterback is the
-starter, and the injury report and injured reserve lower a player's chance of
-playing week by week. A missed game counts as the zero it is in your lineup.
+starter. A player on injured reserve is out for the four-game minimum, and
+after that his chance of being back each week follows how long players with
+the same injury have actually stayed out since 2022. Injury-report
+designations lower the next game. A missed game counts as the zero it is in
+your lineup.
 
 **It leans on the market, a little.** Part of each projection comes from
 FantasyPros' rest-of-season consensus, which knows things usage data cannot.
@@ -73,9 +76,10 @@ layer that could drift from what the model actually did.
 
 It has no access to paid grading data, so coverage scheme and cornerback
 matchups are approximated from play-by-play rather than charted directly.
-Injury reports and depth charts come from nflverse, which updates a few times
-a week, so breaking news can beat it. And it cannot tell you what a coach is
-thinking on Wednesday. It measures what has
+Moves to injured reserve reach it within hours through Sleeper, but return
+dates come from base rates: when a team says a player will be back in four
+weeks, the site still uses how long players with the same injury have stayed
+out. And it cannot tell you what a coach is thinking on Wednesday. It measures what has
 already shown up in usage, which is earlier than the box score but not earlier
 than the beat writer.
 

@@ -116,16 +116,20 @@ week.
 ## 5. Weekly rhythm
 
 Tuesday is the real rebuild, after Monday night is in the data. Friday and
-Sunday runs mostly exist to catch injury designations. If you want to reflect
-an injury immediately, set `p` to 0 for the affected weeks of that player in
-`web/data/projections.json` and redeploy. Each week's `p` is his chance of
-playing, and the site counts a missed game as a zero.
+Sunday runs mostly exist to catch injury designations and moves to injured
+reserve, which Sleeper reports within hours. To reflect news before the next
+scheduled run, run the workflow by hand; an edit to
+`web/data/projections.json` would be overwritten by the next build. Each
+week's `p` there is his chance of playing, and the site counts a missed game
+as a zero.
 
 ## 6. Things worth doing next
 
-- **Injury news arrives a few times a week.** Reports and depth charts come
-  from nflverse, and only the quarterback depth chart is used. A faster status
-  feed, and depth charts at the other positions, would sharpen availability.
+- **Return dates are base rates.** A player on injured reserve gets the return
+  odds of past players with the same injury (hamstring, ankle, knee, or all
+  others), re-measured with `python tools/return_curves.py`. Reported
+  timelines ("out four to six weeks") are not read, and only the quarterback
+  depth chart is used; either would sharpen availability.
 - **Rookies with no snaps cannot be projected.** A prior built from draft
   capital and landing spot would let the site rank them in week one.
 - **Coverage and cornerback matchups** are the thinnest part of the free data.
@@ -147,7 +151,8 @@ pipeline/
   backtest.py     walk-forward validation against baselines
   doctor.py       checks each nflverse loader against one season
   market.py       FantasyPros consensus ranks, and blending with them
-  availability.py depth charts and injury reports, per week
+  availability.py depth charts, injury reports and reserve lists, per week
+  sleeper.py      Sleeper's injury statuses and trending adds
   pages.py        ranking and waiver pages for search engines
 web/
   index.html, styles.css, app.js, data/projections.json

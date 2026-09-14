@@ -284,6 +284,7 @@ a.wordmark { text-decoration: none; }
 
 .statline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.875rem; font-size: 0.75rem; color: var(--ink-3); }
 .reason { font-size: 0.875rem; line-height: 1.7; color: var(--ink-2); }
+.tag { margin-left: 0.25rem; font-size: 0.6875rem; font-weight: 600; color: var(--down); }
 .outlook { align-self: flex-start; font-size: 0.8125rem; font-weight: 500; color: var(--pine); text-underline-offset: 3px; }
 .outlook::after { content: " \2192"; }
 .outlook:hover { text-decoration-thickness: 2px; }

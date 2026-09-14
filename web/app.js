@@ -452,6 +452,38 @@ function renderDrivers(rel) {
   }).join('') + '</div>';
 }
 
+// The shorthand fantasy apps use. Mirrors SHORT_STATUS in pipeline/pages.py.
+const SHORT_STATUS = {
+  Questionable: 'Q', Doubtful: 'D', Out: 'O', Suspended: 'SUS',
+  Inactive: 'NA', 'Did not report': 'DNR',
+};
+
+// What is keeping a player off the field, over the weeks being compared.
+function injuryNote(player) {
+  const inj = player.injury;
+  const weeks = inj ? weeksInRange(player, state.fromWeek, state.toWeek) : [];
+  if (!weeks.length) return '';
+  const chance = wk => `${Math.round(playChance(player, wk) * 100)}%`;
+  const what = { IR: 'On injured reserve', PUP: 'On the physically unable to perform list' }[inj.status]
+    || `Listed as ${inj.status.toLowerCase()}`;
+  const detail = inj.detail ? ` (${inj.detail.toLowerCase()})` : '';
+  let out = 0;
+  while (out < weeks.length && playChance(player, weeks[out]) === 0) out++;
+  const rest = weeks.slice(out);
+  let text;
+  if (!rest.length) {
+    text = `${what}${detail}, and out for every week in this range.`;
+  } else if (out) {
+    const last = rest[rest.length - 1];
+    text = `${what}${detail}: out through week ${weeks[out - 1].w}, then a ${chance(rest[0])} ` +
+      `chance he is back in week ${rest[0].w}` +
+      (last !== rest[0] ? `, rising to ${chance(last)} by week ${last.w}.` : '.');
+  } else {
+    text = `${what}${detail}, so he has a ${chance(weeks[0])} chance of playing in week ${weeks[0].w}.`;
+  }
+  return `<p class="reason">${esc(text)} Games he misses count as zero.</p>`;
+}
+
 function renderStatLine(row) {
   const p = row.player;
   const s = p.stats;
@@ -482,6 +514,7 @@ function renderRanking(rows) {
           <span class="row-main">
             <strong>${esc(p.name)}</strong>
             <span class="row-meta">${esc(p.position)} \u00b7 ${esc(p.team)} \u00b7
+              ${p.injury ? `<span class="down" title="${esc(p.injury.status)}">${esc(SHORT_STATUS[p.injury.status] || p.injury.status)}</span> \u00b7` : ''}
               <span class="${row.vorp >= 0 ? 'up' : 'down'}">${signed(row.vorp)}</span> over replacement</span>
           </span>
           <span class="row-pts">
@@ -495,6 +528,7 @@ function renderRanking(rows) {
         <div class="row-body">
           ${compared ? renderDrivers(row.rel) : ''}
           ${renderStatLine(row)}
+          ${injuryNote(p)}
           ${compared ? `<p class="reason">${esc(reasoning(row, i + 1, others))}</p>` : ''}
           ${state.pages[p.id] ? `<a class="outlook" href="/players/${esc(state.pages[p.id])}/">See ${esc(p.name)}’s full outlook</a>` : ''}
         </div>
