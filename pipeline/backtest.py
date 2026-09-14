@@ -4,13 +4,20 @@ A fantasy model that reports in-sample accuracy is worthless, and a model
 scored only on squared error is measuring the wrong thing, because the product
 outputs an order rather than a number. So this measures what the site actually
 does: given a handful of players, how often does it put them in the right
-order, and are the floor and ceiling bands honest.
+order.
 
-Three baselines have to be beaten before any claim of being better holds:
-  last4      the player's trailing four-game average, which is what most
-             people do in their head and is a genuinely hard baseline
-  season     season-to-date average points per game
-  volume     trailing target and carry volume alone, no model
+Every week of the test season the model is retrained on what had been played
+by then and asked for each player's next `horizon` games through the same
+forecast the site uses, matchups and all. A change that helps here therefore
+helps what people see.
+
+The model has to beat these, all built from the same pre-week information:
+  last4      the player's last four games, reaching back into last season
+             early in the year. What most people do in their head.
+  season     season-to-date points per game, or last season's before any games
+  volume     targets plus carries over the last four games, no model
+  market     FantasyPros' rest-of-season consensus, from the last scrape before
+             the week began
 
 Training never sees a week at or after the week being predicted.
 """
@@ -19,13 +26,17 @@ from __future__ import annotations
 
 import argparse
 import itertools
+from datetime import timedelta
 
 import numpy as np
 import pandas as pd
 
-from . import features, train
+from . import market, project
 from .config import CURRENT_SEASON, POSITIONS, TRAIN_SEASONS
-from .scoring import score_components
+from .current_week import SEASON_OPENER
+from .scoring import actual_points, score_components
+
+METHODS = ["model", "blend", "blend50", "market", "last4", "season_avg", "volume"]
 
 
 def pairwise_accuracy(pred: np.ndarray, actual: np.ndarray,
@@ -55,105 +66,97 @@ def spearman(pred: np.ndarray, actual: np.ndarray) -> float:
     return float(a.corr(b))
 
 
-def run(data: dict, season: int = CURRENT_SEASON, start_week: int = 6,
-        end_week: int = 17, horizon: int = 4, rounds: int = 250,
-        verbose: bool = True) -> pd.DataFrame:
-    """Retrain each week and score the next `horizon` weeks of real outcomes."""
-    hist = features.build_features(
-        data["weekly"], data["team_week"], data["defense"], data["schedule"])
-    hist = hist[hist["games_played"] >= 1]
+def baselines(weekly: pd.DataFrame, season: int, week: int) -> pd.DataFrame:
+    w = weekly.assign(pts=actual_points(weekly, "ppr"))
+    past = w[(w["season"] < season) | ((w["season"] == season) & (w["week"] < week))]
+    past = past.sort_values(["season", "week"])
+    recent = past.groupby("player_id").tail(4).groupby("player_id")
+    this_season = past[past["season"] == season].groupby("player_id")["pts"].mean()
+    last_season = past[past["season"] == season - 1].groupby("player_id")["pts"].mean()
+    out = pd.DataFrame({"last4": recent["pts"].mean(),
+                        "volume": recent[["targets", "carries"]].sum().sum(axis=1)})
+    out["season_avg"] = this_season.reindex(out.index).fillna(last_season)
+    return out
+
+
+def run(data: dict, season: int, start_week: int = 1, end_week: int = 17,
+        horizon: int = 4, rounds: int = 250, market_weight: float = 0.25,
+        use_market: bool = True, verbose: bool = True) -> pd.DataFrame:
+    weekly = data["weekly"]
+    opener = SEASON_OPENER.get(season)
     results = []
 
     for week in range(start_week, end_week - horizon + 2):
-        train_df = hist[~((hist["season"] == season) & (hist["week"] >= week))]
-        test_df = hist[(hist["season"] == season)
-                       & hist["week"].between(week, week + horizon - 1)]
-        if len(train_df) < 500 or test_df.empty:
-            continue
+        through = week + horizon - 1
+        fc = project.forecast(data, season, week, through, rounds=rounds)
+        future = fc["future"]
+        pts = score_components(fc["model_preds"], "ppr", positions=future["position"]).to_numpy()
+        by = future.assign(pts=pts).groupby("player_id")
+        frame = pd.DataFrame({"position": by["position"].first(), "model": by["pts"].mean()})
 
-        bundle = train.train_components(train_df, rounds=rounds)
+        rank = pd.Series(dtype=float)
+        if use_market and opener is not None:
+            rank = market.ranks_before(pd.Timestamp(opener + timedelta(days=7 * (week - 1))))
+        frame["market_rank"] = rank.reindex(frame.index)
+        frame["blend"] = market.blend(frame["model"], frame["position"],
+                                      frame["market_rank"], market_weight)
+        frame["blend50"] = market.blend(frame["model"], frame["position"],
+                                        frame["market_rank"], 0.5)
+        # Anyone the market leaves unranked sits below everyone it does rank.
+        floor = frame.groupby("position")["market_rank"].transform("max").fillna(0) + 1
+        frame["market"] = -frame["market_rank"].fillna(floor)
+        if frame["market_rank"].isna().all():
+            frame["market"] = np.nan
 
-        # Model projection for the test window, using only pre-week form.
-        form = (train_df[train_df["season"] == season]
-                .sort_values("week").groupby("player_id", observed=True).tail(1))
-        if form.empty:
-            continue
-        preds = train.predict_components(form, bundle)
-        form = form.assign(
-            model=score_components(preds, "ppr", positions=form["position"]).to_numpy())
-
-        # Baselines, all computed from the same pre-week information.
-        form["last4"] = form.get("fantasy_points_ppr_r5", form["fantasy_points_ppr"])
-        prior = train_df[train_df["season"] == season]
-        season_avg = prior.groupby("player_id")["fantasy_points_ppr"].mean()
-        last4 = (prior.sort_values("week").groupby("player_id")["fantasy_points_ppr"]
-                 .apply(lambda s: s.tail(4).mean()))
-        volume = (prior.sort_values("week").groupby("player_id")
-                  .apply(lambda g: g.tail(4)[["targets", "carries"]].sum().sum(),
-                         include_groups=False))
-        form["season_avg"] = form["player_id"].map(season_avg)
-        form["last4"] = form["player_id"].map(last4)
-        form["volume"] = form["player_id"].map(volume)
-
-        truth = (test_df.groupby("player_id")["fantasy_points_ppr"].mean()
-                 .rename("actual").reset_index())
-        joined = form.merge(truth, on="player_id", how="inner").dropna(
-            subset=["actual", "model", "last4", "season_avg"])
-        if len(joined) < 30:
-            continue
+        frame = frame.join(baselines(weekly, season, week))
+        truth = weekly[(weekly["season"] == season) & weekly["week"].between(week, through)]
+        frame["actual"] = truth.assign(pts=actual_points(truth, "ppr")).groupby("player_id")["pts"].mean()
+        frame = frame.dropna(subset=["actual", "model", "last4", "season_avg"])
 
         for pos in POSITIONS:
-            grp = joined[joined["position"] == pos]
+            grp = frame[frame["position"] == pos]
             if len(grp) < 12:
                 continue
             actual = grp["actual"].to_numpy()
             row = {"week": week, "position": pos, "n": len(grp)}
-            for method in ["model", "last4", "season_avg", "volume"]:
-                acc, pairs = pairwise_accuracy(grp[method].to_numpy(), actual)
+            for method in METHODS:
+                if grp[method].isna().all():
+                    row[f"{method}_pair"] = row[f"{method}_rho"] = np.nan
+                    continue
+                acc, row["pairs"] = pairwise_accuracy(grp[method].to_numpy(), actual)
                 row[f"{method}_pair"] = acc
                 row[f"{method}_rho"] = spearman(grp[method].to_numpy(), actual)
-                row["pairs"] = pairs
-            row["model_mae"] = float(np.mean(np.abs(grp["model"] - actual)))
-            row["last4_mae"] = float(np.mean(np.abs(grp["last4"] - actual)))
+            for method in ["model", "blend", "last4", "season_avg"]:
+                row[f"{method}_mae"] = float(np.mean(np.abs(grp[method] - actual)))
             results.append(row)
         if verbose:
-            print(f"  week {week}: scored {len(joined)} players")
+            print(f"  week {week}: scored {len(frame)} players", flush=True)
 
     return pd.DataFrame(results)
 
 
 def summarise(res: pd.DataFrame) -> pd.DataFrame:
-    methods = ["model", "last4", "season_avg", "volume"]
     rows = []
-    for method in methods:
+    for method in METHODS:
         rows.append({
             "method": method,
             "pairwise_accuracy": res[f"{method}_pair"].mean(),
             "spearman": res[f"{method}_rho"].mean(),
+            "mae": res[f"{method}_mae"].mean() if f"{method}_mae" in res else np.nan,
         })
-    out = pd.DataFrame(rows).set_index("method")
-    out["mae"] = [res["model_mae"].mean(), res["last4_mae"].mean(), np.nan, np.nan]
-    return out.round(4)
-
-
-def calibration(res_intervals: pd.DataFrame) -> float:
-    """Share of outcomes falling inside the stated 80% band.
-
-    If this is not close to 0.80 the floor and ceiling numbers on the site are
-    decoration rather than information, so it is checked explicitly.
-    """
-    inside = ((res_intervals["actual"] >= res_intervals["p10"])
-              & (res_intervals["actual"] <= res_intervals["p90"]))
-    return float(inside.mean())
+    return pd.DataFrame(rows).set_index("method").round(4)
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description="Walk-forward backtest")
     ap.add_argument("--source", choices=["nflverse", "synthetic"], default="nflverse")
     ap.add_argument("--season", type=int, default=CURRENT_SEASON - 1)
-    ap.add_argument("--start-week", type=int, default=6)
+    ap.add_argument("--start-week", type=int, default=1)
+    ap.add_argument("--end-week", type=int, default=17)
     ap.add_argument("--horizon", type=int, default=4)
     ap.add_argument("--rounds", type=int, default=250)
+    ap.add_argument("--market-weight", type=float, default=0.25)
+    ap.add_argument("--out", help="write per-week, per-position results to this CSV")
     args = ap.parse_args()
 
     if args.source == "synthetic":
@@ -163,16 +166,23 @@ def main() -> None:
         from .ingest import load_all
         data = load_all(TRAIN_SEASONS)
 
-    res = run(data, season=args.season, start_week=args.start_week,
-              horizon=args.horizon, rounds=args.rounds)
+    res = run(data, season=args.season, start_week=args.start_week, end_week=args.end_week,
+              horizon=args.horizon, rounds=args.rounds, market_weight=args.market_weight,
+              use_market=args.source != "synthetic")
     if res.empty:
         print("No comparable weeks produced results.")
         return
+    if args.out:
+        res.to_csv(args.out, index=False)
 
     print("\nAccuracy by method, averaged over walk-forward weeks")
     print(summarise(res).to_string())
-    print("\nBy position")
-    print(res.groupby("position")[["model_pair", "last4_pair"]].mean().round(4).to_string())
+    for label, part in (("weeks 1-2", res[res["week"] <= 2]), ("week 3 on", res[res["week"] >= 3])):
+        if not part.empty:
+            print(f"\n{label}")
+            print(summarise(part)[["pairwise_accuracy", "spearman"]].to_string())
+    print("\nPairwise accuracy by position")
+    print(res.groupby("position")[[f"{m}_pair" for m in METHODS]].mean().round(4).to_string())
 
 
 if __name__ == "__main__":

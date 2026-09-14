@@ -159,24 +159,6 @@ def predict_components(df: pd.DataFrame, bundle: dict) -> pd.DataFrame:
     return out
 
 
-def blend_with_market(model_score: pd.Series, market_rank: pd.Series,
-                      weight: float = 0.25) -> pd.Series:
-    """Shrink the model toward consensus.
-
-    Market prices, in the form of average draft position and expert consensus,
-    are a hard baseline. Blending beats either input alone, and it keeps the
-    model from making a confident mistake on a player it has thin data for.
-    The model's job is to be right about where it disagrees, not to disagree
-    for its own sake.
-    """
-    if market_rank is None or market_rank.isna().all():
-        return model_score
-    m = model_score.rank(pct=True)
-    k = (1 - market_rank.rank(pct=True))
-    blended = (1 - weight) * m + weight * k.fillna(m)
-    return blended.rank(ascending=False)
-
-
 def save(bundle_components: dict, bundle_rank: dict, variance: dict,
          path: Path = MODEL_DIR) -> None:
     path.mkdir(parents=True, exist_ok=True)

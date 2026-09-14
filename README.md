@@ -44,6 +44,15 @@ the right pick for the rest of the season and the wrong one for weeks 15 to
 simulated thousands of times, with an availability model layered on top, so
 the floor and ceiling shown are calibrated rather than decorative.
 
+**It knows who plays.** The depth chart decides which quarterback is the
+starter, and the injury report and injured reserve lower a player's chance of
+playing week by week. A missed game counts as the zero it is in your lineup.
+
+**It leans on the market, a little.** Part of each projection comes from
+FantasyPros' rest-of-season consensus, which knows things usage data cannot.
+The explanation shows that pull as its own bar, so you can see where the model
+and the experts disagree.
+
 **It compares across positions honestly.** Rankings are driven by value over
 replacement, computed from your league size. A tight end at 11 points can
 outrank a receiver at 12.5, because the tight end you would otherwise start is
@@ -64,8 +73,9 @@ layer that could drift from what the model actually did.
 
 It has no access to paid grading data, so coverage scheme and cornerback
 matchups are approximated from play-by-play rather than charted directly.
-Injury designations default to healthy until a status feed is wired in. And it
-cannot tell you what a coach is thinking on Wednesday. It measures what has
+Injury reports and depth charts come from nflverse, which updates a few times
+a week, so breaking news can beat it. And it cannot tell you what a coach is
+thinking on Wednesday. It measures what has
 already shown up in usage, which is earlier than the box score but not earlier
 than the beat writer.
 

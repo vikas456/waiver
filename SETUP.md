@@ -59,23 +59,40 @@ What gets pulled, all free and all from nflverse via
 
 ## 3. Check the accuracy claims yourself
 
-Do this before you trust a single ranking. It retrains the model once per
-week, predicts the following four weeks, and scores those predictions against
-what actually happened.
+Do this before you trust a single ranking. For every week of the season it
+retrains the model on what had been played by then, runs the same forecast the
+site runs for the following four weeks, and scores it against what actually
+happened.
 
 ```bash
-python -m pipeline.backtest --source nflverse --season 2025 --start-week 6
+python -m pipeline.backtest --source nflverse --season 2025
 ```
 
-You get pairwise ranking accuracy and Spearman correlation for the model and
-for three baselines: trailing four-game average, season average, and raw
-volume. The trailing average is a harder baseline than it looks, because it is
-roughly what a sharp person does in their head.
+You get pairwise ranking accuracy and Spearman correlation for the model, for
+blends of the model with FantasyPros' consensus, and for four baselines:
+trailing four-game average, season average, raw volume, and the consensus
+itself. The trailing average is a harder baseline than it looks, because it is
+roughly what a sharp person does in their head; the consensus is harder still.
+Weeks 1 and 2 are reported separately, since the model has least to go on there.
+Add `--out results.csv` to keep the per-week, per-position scores.
 
-**If the model does not beat all three, it is not better, and the honest move
-is to say so and keep working rather than ship it.** Expect roughly 3 to 8 points of pairwise accuracy over the trailing average if the
+**If the model does not beat the three simple baselines, it is not better than
+what already exists, and the honest move is to say so and keep working rather
+than ship it.** The blend the site ships should also at least match the
+consensus. Expect roughly 3 to 8 points of pairwise accuracy over the trailing average if the
 approach is working as intended. If you see less than 2, something is wrong —
 start by checking that `--from-week` is right and that the cache is current.
+
+On the 2025 season, run in September 2026, the share of player pairs put in
+the right order was:
+
+| | Model | What the site ships | FantasyPros | Last four games | Season average |
+|---|---|---|---|---|---|
+| Weeks 1–2 | 0.831 | 0.855, an even blend | 0.856 | 0.772 | 0.775 |
+| Week 3 on | 0.853 | 0.857, a 25% blend | 0.816 | 0.804 | 0.813 |
+
+Quarterbacks remain the weakest position. The blend weights were chosen on
+this same season, so treat the margins as a ceiling until 2026 confirms them.
 
 ## 4. Deploy
 
@@ -97,19 +114,17 @@ week.
 
 Tuesday is the real rebuild, after Monday night is in the data. Friday and
 Sunday runs mostly exist to catch injury designations. If you want to reflect
-an injury immediately, edit `playProb` for that player in
-`web/data/projections.json` and redeploy — setting it to 0 removes him from
-consideration cleanly, since the simulation already handles missed games.
+an injury immediately, set `p` to 0 for the affected weeks of that player in
+`web/data/projections.json` and redeploy. Each week's `p` is his chance of
+playing, and the site counts a missed game as a zero.
 
 ## 6. Things worth doing next
 
-- **Injury designations are currently assumed healthy.** Wiring in a live
-  status feed is the highest-value single upgrade, because an out designation
-  matters more than any model refinement.
-- **Market anchoring is stubbed.** `train.blend_with_market` is written and
-  tested but not fed, because free ADP data needs a source decision. Blending
-  the model 75/25 with consensus typically beats either alone, so this is the
-  second thing to do.
+- **Injury news arrives a few times a week.** Reports and depth charts come
+  from nflverse, and only the quarterback depth chart is used. A faster status
+  feed, and depth charts at the other positions, would sharpen availability.
+- **Rookies with no snaps cannot be projected.** A prior built from draft
+  capital and landing spot would let the site rank them in week one.
 - **Coverage and cornerback matchups** are the thinnest part of the free data.
   The model approximates them from play-by-play. A paid feed would upgrade
   this, and it is the only place where paying for data would clearly pay off.

@@ -56,7 +56,7 @@ FUMBLES_LOST = ["sack_fumbles_lost", "rushing_fumbles_lost", "receiving_fumbles_
 TWO_POINT = ["passing_2pt_conversions", "rushing_2pt_conversions",
              "receiving_2pt_conversions"]
 WEEKLY_COLUMNS = (["player_id", "position", "season", "week", "game_id", "team",
-                   "opponent_team", "targets", "carries"]
+                   "opponent_team", "targets", "carries", "attempts", "completions"]
                   + list(STAT_RENAMES) + FUMBLES_LOST + TWO_POINT)
 
 # Per-player route counts are not published free, so routes are estimated

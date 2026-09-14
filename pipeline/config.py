@@ -99,12 +99,34 @@ STABILISATION_GAMES = {
     "yac_oe": 9.0,
     "ryoe_per_carry": 11.0,
     "catch_rate_oe": 10.0,
-    "td_rate": 40.0,
+    "td_oe": 40.0,
     "yards_per_route": 8.0,
     "cpoe": 9.0,
+    # Box-score production, alongside the usage above. Volume settles within
+    # a few games; touchdowns and interceptions barely settle at all.
+    "attempts": 3.0,
+    "completions": 4.0,
+    "reception": 4.0,
+    "pass_yd": 5.0,
+    "rush_yd": 5.0,
+    "rec_yd": 5.0,
+    "fantasy_points_ppr": 5.0,
+    "pass_td": 12.0,
+    "interception": 15.0,
+    "rush_td": 20.0,
+    "rec_td": 20.0,
 }
 
 ROLLING_WINDOWS = [3, 5]
+
+# Share of each projection taken from FantasyPros' rest-of-season consensus.
+# Set from the walk-forward backtest, which scores the model, the consensus
+# and blends of the two on the same weeks. Before week three the model knows
+# least and the market knows about offseason moves and rookies, so it gets
+# more say: on 2025 an even blend matched the consensus there, while from
+# week three the model alone beat it and a light blend did best.
+MARKET_WEIGHT = 0.25
+MARKET_WEIGHT_EARLY = 0.5
 
 # Human-readable names for the explanation layer, keyed by the feature group
 # that SHAP contributions are aggregated into.
@@ -115,6 +137,8 @@ DRIVER_LABELS = {
     "efficiency": "Efficiency over expected",
     "td_regression": "Touchdown regression",
     "trend": "Usage trend",
+    "production": "Recent production",
+    "market": "Expert consensus",
     "offense": "Offensive environment",
     "schedule": "Remaining schedule",
     "coverage": "Coverage matchup",

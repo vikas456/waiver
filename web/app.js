@@ -72,6 +72,10 @@ function weeksInRange(player, from, to) {
   return player.weeks.filter(w => w.w >= from && w.w <= to);
 }
 
+// Chance of playing in one week, which the depth chart and injury report can
+// lower. Older data files carry a single figure per player.
+const playChance = (player, wk) => wk.p ?? player.playProb;
+
 // Fast analytic mean, used to rank the whole player pool so replacement level
 // has something to be measured against. Simulation is reserved for the few
 // players actually being compared.
@@ -80,8 +84,10 @@ function meanPpg(player, from, to) {
   const weeks = weeksInRange(player, from, to);
   if (!weeks.length) return 0;
   let total = 0;
-  for (const wk of weeks) total += scoreLine(wk.c, weights, player.position, state.tePremium);
-  return (total / weeks.length) * player.playProb;
+  for (const wk of weeks) {
+    total += scoreLine(wk.c, weights, player.position, state.tePremium) * playChance(player, wk);
+  }
+  return total / weeks.length;
 }
 
 function simulate(player, from, to, draws = 3000) {
@@ -106,14 +112,17 @@ function simulate(player, from, to, draws = 3000) {
   for (let d = 0; d < draws; d++) {
     let total = 0, played = 0;
     for (let i = 0; i < weeks.length; i++) {
-      if (Math.random() >= player.playProb) continue;
+      if (Math.random() >= playChance(player, weeks[i])) continue;
       const shape = (means[i] / sds[i]) ** 2;
       const scale = (sds[i] * sds[i]) / means[i];
       total += gamma(shape, scale);
       played++;
     }
     totals[d] = total;
-    perGame[d] = played ? total / played : 0;
+    // Averaged over every scheduled game, so a missed game counts as the zero
+    // it is in a lineup. Averaging only games played let a backup who rarely
+    // plays look like a starter.
+    perGame[d] = total / weeks.length;
     gameSum += played;
   }
 
@@ -263,6 +272,8 @@ const PHRASES = {
     'has scored far more than his usage supports'],
   trend: ['has been gaining role over the past few weeks',
     'has been losing role over the past few weeks'],
+  production: ['has been putting up bigger stat lines', 'has been putting up smaller stat lines'],
+  market: ['is rated higher by expert consensus', 'is rated lower by expert consensus'],
   offense: ['plays in a faster, more productive offence',
     'is stuck in an offence that does not generate enough volume'],
   schedule: ['draws a friendlier set of remaining defences',
@@ -506,9 +517,9 @@ function render() {
   renderRanking(rows);
   const span = state.fromWeek === state.toWeek
     ? `week ${state.fromWeek}` : `weeks ${state.fromWeek}\u2013${state.toWeek}`;
-  $('#footnote').textContent = `Points per game over ${span}, with byes and missed ` +
-    'games priced in. Value over replacement compares each player with the best ' +
-    'free agent at his position in a league your size.';
+  $('#footnote').textContent = `Expected points per game over ${span}, counting the ` +
+    'chance he misses a game. Byes are left out. Value over replacement compares ' +
+    'each player with the best free agent at his position in a league your size.';
   if (n < 2) return;
 
   const answer = headline(rows);

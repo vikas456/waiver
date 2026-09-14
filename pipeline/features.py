@@ -14,7 +14,8 @@ import numpy as np
 import pandas as pd
 
 from .config import (
-    POSITIONS, ROLLING_WINDOWS, SEASON_DECAY, STABILISATION_GAMES,
+    FULL_FORM_FROM_WEEK, POSITIONS, REGULAR_SEASON_WEEKS, ROLLING_WINDOWS,
+    SEASON_DECAY, STABILISATION_GAMES,
 )
 from .scoring import actual_points
 
@@ -24,6 +25,14 @@ SHARE_COLS = [
 ]
 EFF_COLS = ["adot", "yac_oe", "ryoe_per_carry", "catch_rate_oe",
             "yards_per_route", "cpoe", "rec_epa", "rush_epa"]
+# The player's own stat lines. Usage leads production, but without these the
+# model cannot see what a quarterback does as a passer at all, and cannot
+# even reproduce the trailing average it is meant to beat.
+PRODUCTION_COLS = ["attempts", "completions", "pass_yd", "pass_td", "interception",
+                   "rush_yd", "rush_td", "reception", "rec_yd", "rec_td",
+                   "fantasy_points_ppr"]
+ROLLED_COLS = (SHARE_COLS + EFF_COLS + PRODUCTION_COLS
+               + ["td_oe", "expected_td", "actual_td", "targets", "carries"])
 
 
 # ---------------------------------------------------------------------------
@@ -54,6 +63,22 @@ def _role_prior(df: pd.DataFrame, col: str) -> pd.Series:
     key = ["position", "draft_bucket", "exp_bucket"]
     prior = df.groupby(key, observed=True)[col].transform("median")
     return prior.fillna(df.groupby("position", observed=True)[col].transform("median")).fillna(0.0)
+
+
+def _last_season(df: pd.DataFrame, cols: list[str]) -> pd.DataFrame:
+    """Each player's per-game average and game count from the season before
+    each row's season, aligned to df."""
+    cols = [c for c in cols if c in df.columns]
+    agg = (df[~df["is_next"]].groupby(["player_id", "season"], observed=True)[cols]
+           .agg(["mean", "count"]))
+    agg.columns = [f"{col}_{stat}" for col, stat in agg.columns]
+    agg = agg.reset_index()
+    agg["season"] += 1
+    out = df[["player_id", "season"]].merge(agg, on=["player_id", "season"], how="left")
+    out.index = df.index
+    for col in cols:
+        out[f"{col}_count"] = out[f"{col}_count"].fillna(0)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -190,23 +215,50 @@ def detect_change_points(df: pd.DataFrame, col: str = "snap_share",
 # Opponent adjustment
 # ---------------------------------------------------------------------------
 
-def opponent_strength(defense: pd.DataFrame) -> pd.DataFrame:
-    """Per-defence, per-position adjustment factor, normalised for pace.
+def _weekly_defense_factor(defense: pd.DataFrame) -> pd.DataFrame:
+    """Points each defence allowed per play in one game, against that week's
+    league average for the position.
 
     A defence that faces 70 plays a game will allow more fantasy points than
     one facing 58 without being any worse. Dividing by plays faced fixes that,
     which is why this differs from the points-allowed tables most sites show.
+    Comparing within the week keeps later weeks out of the average.
     """
-    d = defense.copy()
+    d = defense.sort_values(["season", "defteam", "position", "week"]).copy()
     d["pts_per_play"] = d["pts_allowed"] / d["targets_allowed"].replace(0, np.nan).clip(lower=1)
-    league = d.groupby(["season", "position"], observed=True)["pts_per_play"].transform("mean")
-    d["def_factor"] = d["pts_per_play"] / league.replace(0, np.nan)
-    # Shrink toward neutral. Defensive fantasy splits are noisy and a handful
-    # of games is not enough to justify a large adjustment.
-    n = d.groupby(["season", "defteam", "position"], observed=True).cumcount() + 1
-    w = n / (n + 6.0)
-    d["def_factor"] = w * d["def_factor"].fillna(1.0) + (1 - w) * 1.0
+    league = d.groupby(["season", "week", "position"], observed=True)["pts_per_play"].transform("mean")
+    d["raw"] = (d["pts_per_play"] / league.replace(0, np.nan)).fillna(1.0)
+    return d
+
+
+def _shrink_to_neutral(mean: pd.Series, games: pd.Series) -> pd.Series:
+    # Defensive fantasy splits are noisy, and a handful of games is not
+    # enough to justify a large adjustment.
+    w = games / (games + 6.0)
+    return w * mean.fillna(1.0) + (1 - w) * 1.0
+
+
+def opponent_strength(defense: pd.DataFrame) -> pd.DataFrame:
+    """Each defence's strength against a position going into each game.
+
+    Only its earlier games that season count. A game's own result contains
+    the very points being predicted, so letting it into that game's features
+    teaches the model a relationship it never has when forecasting.
+    """
+    d = _weekly_defense_factor(defense)
+    raw = d.groupby(["season", "defteam", "position"], observed=True)["raw"]
+    games = raw.cumcount()
+    before = (raw.cumsum() - d["raw"]) / games.replace(0, np.nan)
+    d["def_factor"] = _shrink_to_neutral(before, games)
     return d[["season", "week", "defteam", "position", "def_factor"]]
+
+
+def current_opponent_strength(defense: pd.DataFrame, season: int) -> pd.DataFrame:
+    """Each defence's strength after every game it has played in a season."""
+    d = _weekly_defense_factor(defense[defense["season"] == season])
+    agg = d.groupby(["defteam", "position"], observed=True)["raw"].agg(["mean", "count"])
+    agg["def_factor"] = _shrink_to_neutral(agg["mean"], agg["count"])
+    return agg["def_factor"].reset_index()
 
 
 def game_script(schedule: pd.DataFrame) -> pd.DataFrame:
@@ -235,10 +287,43 @@ def game_script(schedule: pd.DataFrame) -> pd.DataFrame:
 # Assembly
 # ---------------------------------------------------------------------------
 
+def with_next_game(weekly: pd.DataFrame, team_week: pd.DataFrame, season: int,
+                   week: int) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Append an empty row, for every player and every team, at the game
+    about to be predicted.
+
+    Each trailing feature is built from the rows before the one it sits on,
+    so a player's latest game only reaches the model through the row after
+    it. Forecasting from his last played row would ignore his most recent
+    game. The empty row carries features built from every game already
+    played and holds no outcome, so it can never leak into training.
+
+    Before week three the forecast starts from last season, so the same is
+    done at the end of last season.
+    """
+    points = [(season, week)]
+    if week < FULL_FORM_FROM_WEEK:
+        points.append((season - 1, REGULAR_SEASON_WEEKS + 1))
+    keep = [c for c in ("player_id", "player_name", "position", "team", "season",
+                        "pfr_id", "years_exp", "draft_number", "age") if c in weekly.columns]
+    players, teams = [], []
+    for s, w in points:
+        played = weekly[(weekly["season"] == s) & (weekly["week"] < w)]
+        last = played.sort_values("week").groupby("player_id", observed=True).tail(1)
+        players.append(last[keep].assign(week=w, is_next=True))
+        tw = team_week[(team_week["season"] == s) & (team_week["week"] < w)]
+        teams.append(pd.DataFrame({"team": tw["team"].unique(), "season": s, "week": w}))
+    weekly = pd.concat([weekly.assign(is_next=False), *players], ignore_index=True)
+    team_week = pd.concat([team_week, *teams], ignore_index=True)
+    return weekly, team_week
+
+
 def build_features(weekly: pd.DataFrame, team_week: pd.DataFrame,
                    defense: pd.DataFrame, schedule: pd.DataFrame) -> pd.DataFrame:
     """Produce the model-ready frame: one row per player per game."""
     df = weekly.copy()
+    if "is_next" not in df.columns:
+        df["is_next"] = False
     df["position"] = df["position"].astype(str)
     df = df[df["position"].isin(POSITIONS)]
 
@@ -259,9 +344,9 @@ def build_features(weekly: pd.DataFrame, team_week: pd.DataFrame,
 
     df = add_efficiency(df)
     df["route_participation"] = df["routes"] / (df["team_pass_att"].replace(0, np.nan))
+    df["fantasy_points_ppr"] = actual_points(df, "ppr")
 
-    df = add_rolling(df, SHARE_COLS + EFF_COLS
-                     + ["td_oe", "expected_td", "actual_td", "targets", "carries"])
+    df = add_rolling(df, ROLLED_COLS)
     df = detect_change_points(df)
 
     # Season-to-date totals, for display only. These are never fed to the
@@ -273,14 +358,21 @@ def build_features(weekly: pd.DataFrame, team_week: pd.DataFrame,
             df.groupby(["player_id", "season"], observed=True)[col].cumsum()
         )
 
-    # Shrink every trailing rate toward its role prior, weighted by how fast
-    # that particular metric stabilises.
-    for col in SHARE_COLS + EFF_COLS + ["td_oe"]:
+    # Shrink every trailing rate toward a prior, weighted by how fast that
+    # particular metric stabilises. The prior is the player's own last
+    # season where he has one, itself shrunk toward what his role typically
+    # does, so a veteran starts September from his real level and a rookie
+    # from his role. Windows still reset at the season boundary: last season
+    # only sets the starting point that this season's games move away from.
+    shrunk = SHARE_COLS + EFF_COLS + PRODUCTION_COLS + ["td_oe"]
+    last = _last_season(df, shrunk)
+    for col in shrunk:
         src = f"{col}_todate"
         if src not in df.columns:
             continue
-        prior = _role_prior(df, src)
         k = STABILISATION_GAMES.get(col, 6.0)
+        prior = shrink(last[f"{col}_mean"], last[f"{col}_count"].fillna(0),
+                       _role_prior(df, src), k)
         df[f"{col}_adj"] = shrink(df[src], df["games_played"], prior, k)
 
     # Offensive environment, lagged one week.
@@ -308,7 +400,6 @@ def build_features(weekly: pd.DataFrame, team_week: pd.DataFrame,
 
     # Recency weight for training.
     df["season_weight"] = SEASON_DECAY ** (df["season"].max() - df["season"])
-    df["fantasy_points_ppr"] = actual_points(df, "ppr")
     return df
 
 
