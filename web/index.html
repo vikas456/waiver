@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0e1211">
 <title>Waiver — who should you pick up?</title>
 <meta name="description" content="Rank NFL free agents for the rest of your fantasy season using usage and efficiency data, not box scores.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -18,71 +19,40 @@
 </header>
 
 <main id="main">
-
-  <!-- Entry -->
-  <section class="panel" id="entryPanel">
-    <h1>Who should you pick up?</h1>
-    <p class="lede">Add two or more free agents. We rank them on the usage and
-      efficiency that predicts the rest of the season, not the points they
-      already scored.</p>
+  <section class="panel" id="panel">
+    <div class="intro" id="intro">
+      <h1>Who should you pick up?</h1>
+      <p class="lede">Add two or more free agents. We rank them on the usage and
+        efficiency that predicts the rest of the season, not the points they
+        already scored.</p>
+    </div>
 
     <div class="search" role="search">
       <svg class="search-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="M13.5 13.5 L17 17"/></svg>
       <input id="search" type="text" autocomplete="off" spellcheck="false"
-             placeholder="Search players" aria-label="Search players"
+             placeholder="Add a player" aria-label="Add a player"
              aria-expanded="false" aria-controls="suggestions" role="combobox">
       <ul id="suggestions" class="suggestions" role="listbox" hidden></ul>
     </div>
 
-    <ul id="picked" class="picked" aria-label="Players to compare"></ul>
+    <div class="chips">
+      <button class="chip" id="weekSetting" type="button" aria-haspopup="dialog"><span id="weekValue">Rest of season</span></button>
+      <button class="chip" id="formatSetting" type="button" aria-haspopup="dialog"><span id="formatValue">Full PPR</span></button>
+      <button class="chip" id="leagueSetting" type="button" aria-haspopup="dialog"><span id="leagueValue">12 teams</span></button>
+    </div>
     <p id="entryError" class="error" hidden></p>
 
-    <div class="settings">
-      <button class="setting" id="weekSetting" type="button" aria-haspopup="dialog">
-        <span class="setting-label">Weeks</span>
-        <span class="setting-value" id="weekValue">Rest of season</span>
-      </button>
-      <button class="setting" id="formatSetting" type="button" aria-haspopup="dialog">
-        <span class="setting-label">Scoring</span>
-        <span class="setting-value" id="formatValue">Full PPR</span>
-      </button>
-      <button class="setting" id="leagueSetting" type="button" aria-haspopup="dialog">
-        <span class="setting-label">League</span>
-        <span class="setting-value" id="leagueValue">12 teams</span>
-      </button>
-      <button class="setting" id="needSetting" type="button" aria-haspopup="dialog">
-        <span class="setting-label">I need</span>
-        <span class="setting-value" id="needValue">Any position</span>
-      </button>
+    <div class="answer" id="answer" aria-live="polite" hidden>
+      <span class="pill" id="answerLabel"></span>
+      <p class="answer-title" id="answerTitle"></p>
+      <p class="answer-sub" id="answerSub"></p>
+      <p class="flip" id="flipNote" hidden></p>
     </div>
 
-    <button class="primary" id="compare" type="button" disabled>Add two players to compare</button>
+    <ol class="ranking" id="ranking" aria-label="Players, best pick first"></ol>
+    <p class="hint" id="hint" hidden>Add one more player to compare.</p>
+    <p class="footnote" id="footnote" hidden></p>
   </section>
-
-  <!-- Results -->
-  <section class="panel" id="resultsPanel" hidden>
-    <div class="results-head">
-      <div>
-        <h2 id="resultsTitle">Rest-of-season ranking</h2>
-        <p class="meta" id="resultsMeta"></p>
-      </div>
-      <button class="ghost" id="back" type="button">Start over</button>
-    </div>
-
-    <p class="verdict" id="verdict"></p>
-    <p class="flip" id="flipNote" hidden></p>
-
-    <ol class="ranking" id="ranking"></ol>
-
-    <p class="footnote">
-      Projected points per game are the average of simulated outcomes across
-      the selected weeks, with byes and the chance of missing a game already
-      priced in. Value over replacement compares each player against the best
-      freely available player at his own position in a league your size, which
-      is why a tight end can outrank a receiver who scores more.
-    </p>
-  </section>
-
 </main>
 
 <!-- Settings dialog -->

@@ -43,7 +43,7 @@ disagrees with nflverse's own PPR total.
 11, pass 11. `python -m pipeline.current_week` works it out from the calendar.
 From week 3, form comes from the current season alone. Weeks 1 and 2 start
 each player from his last game of an earlier season, blend in any games
-already played this season, and keep only players on an active roster.
+already played this season, and keep every player still with a team.
 
 What gets pulled, all free and all from nflverse via
 [nflreadpy](https://github.com/nflverse/nflreadpy):

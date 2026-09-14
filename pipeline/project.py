@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +30,7 @@ from .config import (CURRENT_SEASON, FULL_FORM_FROM_WEEK, POSITIONS,
 from .scoring import score_components
 
 OUT_PATH = Path("web/data/projections.json")
+HEADSHOT_SIZE = "f_auto,q_auto,c_thumb,g_face,w_96,h_96"
 
 
 def early_season_form(rows: pd.DataFrame, rosters: pd.DataFrame, season: int,
@@ -45,9 +47,9 @@ def early_season_form(rows: pd.DataFrame, rosters: pd.DataFrame, season: int,
     windows still reset at the season boundary, and this only decides where an
     early projection starts.
 
-    Only players on an active roster are kept, so retired, released and
-    injured-reserve players do not reappear, and each takes his current team so
-    an offseason move projects against the new schedule.
+    Only players still with a team are kept, so retired and released players
+    do not reappear, and each takes his current team so an offseason move
+    projects against the new schedule.
     """
     def latest(frame: pd.DataFrame) -> pd.DataFrame:
         return (frame.sort_values(["season", "week"])
@@ -59,8 +61,11 @@ def early_season_form(rows: pd.DataFrame, rosters: pd.DataFrame, season: int,
     form = latest(rows[(rows["season"] < season) & (rows["games_played"] >= 1)])
     form = pd.concat([form, this_season.drop(form.index, errors="ignore")])
 
+    # Inactive, reserve and practice-squad players stay. A waiver search has to
+    # find a starter who sat out week one, and keeping only the active list
+    # dropped the top-ranked tight end.
     if "status" in rosters.columns:
-        rosters = rosters[rosters["status"] == "ACT"]
+        rosters = rosters[~rosters["status"].isin(["CUT", "RET"])]
     form = form[form.index.isin(rosters["player_id"])].copy()
     form["season"] = season
     form["team"] = (this_season["team"]
@@ -215,6 +220,7 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
                 "name": row["player_name"],
                 "position": row["position"],
                 "team": row["team"],
+                "headshot": _headshot(info.get("headshot_url")),
                 "playProb": round(play_prob, 3),
                 "weeks": [],
                 "stats": {
@@ -268,6 +274,14 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
         },
         "players": list(players.values()),
     }
+
+
+def _headshot(url) -> str | None:
+    """A face-cropped thumbnail. nflverse links full-size NFL headshots of
+    several megabytes each, and the image host resizes on request."""
+    if not isinstance(url, str) or not url:
+        return None
+    return re.sub(r"/image/upload/[^/]+/", f"/image/upload/{HEADSHOT_SIZE}/", url, count=1)
 
 
 def _r(v, nd: int = 4):

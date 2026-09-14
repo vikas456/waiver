@@ -322,6 +322,8 @@ def load_rosters(seasons: list[int], refresh: bool = False) -> pd.DataFrame:
         r["age"] = (pd.Timestamp(season, 9, 1) - born).dt.days / 365.25
         cols = ["player_id", "season", "player_name", "position", "team", "pfr_id",
                 "age", "years_exp", "draft_number", "status"]
+        # Display only, so a season without photos is not worth failing over.
+        cols += [c for c in ["headshot_url"] if c in r.columns]
         return r[cols].reset_index(drop=True)
 
     return _by_season("rosters", seasons, build, refresh)

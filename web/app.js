@@ -2,7 +2,7 @@
  *
  * The Python pipeline writes one static file of per-week stat-line
  * predictions. Everything a person can change in the interface — scoring
- * format, week range, league size, positional need — is applied here, in the
+ * format, week range, league size — is applied here, in the
  * browser, against those same numbers. That keeps the site free to host and
  * makes every control instant.
  */
@@ -23,7 +23,6 @@ const state = {
   format: 'ppr',
   leagueSize: 12,
   tePremium: 0,
-  need: 'any',
 };
 
 /* -- Scoring ------------------------------------------------------------- */
@@ -133,6 +132,15 @@ function simulate(player, from, to, draws = 3000) {
   };
 }
 
+// Draws are random, so without this every player's numbers would shift a
+// little each time the list re-ranks as someone is added or removed.
+const simCache = new Map();
+function simulateCached(player, from, to) {
+  const key = `${player.id}|${from}|${to}|${state.format}|${state.tePremium}`;
+  if (!simCache.has(key)) simCache.set(key, simulate(player, from, to));
+  return simCache.get(key);
+}
+
 /* -- Value over replacement ---------------------------------------------- */
 
 function replacementLevels(from, to) {
@@ -196,7 +204,7 @@ function rank(players, from, to) {
   const fmtWeights = state.data.meta.scoringFormats[state.format];
 
   const rows = players.map(p => {
-    const sim = simulate(p, from, to);
+    const sim = simulateCached(p, from, to);
     const weeks = weeksInRange(p, from, to);
     const pprMean = weeks.length
       ? weeks.reduce((a, w) => a + scoreLine(w.c, pprWeights, p.position, 0), 0) / weeks.length
@@ -207,10 +215,7 @@ function rank(players, from, to) {
     const scale = pprMean > 0 ? fmtMean / pprMean : 1;
 
     const replacement = levels[p.position] || 0;
-    let vorp = sim.ppg - replacement;
-    // A stated positional need is a real constraint, not a preference: a
-    // receiver you cannot start is worth less to you than one you can.
-    if (state.need !== 'any' && p.position !== state.need) vorp -= 0.6;
+    const vorp = sim.ppg - replacement;
 
     const byes = (p.byeWeeks || []).filter(w => w >= from && w <= to);
     return { player: p, ...sim, replacement, vorp, drivers: driverTotals(p, from, to, scale), byes };
@@ -268,7 +273,11 @@ const PHRASES = {
 
 const ORDINAL = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
 
-function lastName(name) { const bits = name.split(' '); return bits[bits.length - 1]; }
+// Real names carry suffixes, and "Jr. ranks first" is not a sentence.
+function lastName(name) {
+  const bits = name.split(' ').filter(b => !/^(jr|sr|ii|iii|iv|v)\.?$/i.test(b));
+  return bits[bits.length - 1] || name;
+}
 
 function phraseFor(group, position) {
   if (group === 'opportunity' && OPPORTUNITY_PHRASES[position]) {
@@ -283,19 +292,6 @@ function splitDrivers(rel) {
     up: entries.filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]),
     down: entries.filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1]),
   };
-}
-
-// The headline factor should match the verdict. Leading a first-place player
-// with his worst attribute reads as a contradiction, even when that attribute
-// happens to be the largest number.
-function summaryLine(row, rel, position) {
-  const { up, down } = splitDrivers(rel);
-  const preferred = position === 1 ? (up[0] || down[0]) : (down[0] || up[0]);
-  if (!preferred) return 'Sits in the middle of this group on every factor.';
-  const [group, value] = preferred;
-  const phrase = phraseFor(group, row.player.position);
-  const text = value > 0 ? phrase[0] : phrase[1];
-  return text.charAt(0).toUpperCase() + text.slice(1) + '.';
 }
 
 function reasoning(row, position, others) {
@@ -357,33 +353,38 @@ function reasoning(row, position, others) {
   return parts.join(' ');
 }
 
-function verdictLine(rows) {
-  const top = rows[0];
-  if (rows.length < 2) return `${top.player.name} is the only player ranked.`;
-  const second = rows[1];
+// The answer leads, in one sentence. How firmly it is worded follows the size
+// of the gap, so a near tie never reads as a sure thing.
+function headline(rows) {
+  const [top, second] = rows;
   const gap = top.ppg - second.ppg;
   const vorpGap = top.vorp - second.vorp;
-  let text;
+  let answer;
 
-  if (Math.abs(vorpGap) < 0.35) {
-    text = `${top.player.name} and ${second.player.name} are close enough that ` +
-      'either is defensible. Take the one whose role you believe in.';
-  } else if (gap < 0) {
-    // The case value over replacement exists to handle.
-    text = `${top.player.name} projects for ${Math.abs(gap).toFixed(1)} fewer points ` +
-      `a game than ${second.player.name} but still ranks first, because ${top.player.position} ` +
-      'is the thinner position in your league and he replaces a worse player on your bench.';
+  if (vorpGap < 0.35) {
+    answer = {
+      tone: 'warn', label: 'Close call',
+      title: `${top.player.name}, narrowly over ${second.player.name}.`,
+      sub: `They finish ${vorpGap.toFixed(1)} points of value apart. ` +
+        'Take the one whose role you believe in.',
+    };
   } else {
-    text = `${top.player.name} is the pick, by about ${gap.toFixed(1)} points a game ` +
-      `over ${second.player.name}.`;
+    answer = {
+      tone: vorpGap < 1 ? 'neutral' : 'good',
+      label: vorpGap < 1 ? 'Slight edge' : 'Clear pick',
+      title: `Pick up ${top.player.name}.`,
+      // Fewer points but still first is the case value over replacement exists for.
+      sub: gap < 0
+        ? `He projects ${Math.abs(gap).toFixed(1)} fewer points a game than ${second.player.name}, ` +
+          `but ${top.player.position} is the thinner position in your league, so he replaces a worse player.`
+        : `About ${gap.toFixed(1)} more points a game than ${second.player.name}.`,
+    };
   }
-
-  const spread = top.p90 - top.p10;
-  if (spread > 10) {
-    text += ' His range of outcomes is wide, so take him if you need upside and ' +
-      'the steadier option if you are protecting a lead.';
+  if (top.p90 - top.p10 > 10) {
+    answer.sub += ' His range is wide, so take him if you need upside and the ' +
+      'steadier option if you are protecting a lead.';
   }
-  return text;
+  return answer;
 }
 
 // A player can be right for the rest of the season and wrong for the fantasy
@@ -418,11 +419,11 @@ function renderDrivers(rel) {
   const entries = Object.entries(rel)
     .filter(([, v]) => Math.abs(v) > 0.08)
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-    .slice(0, 5);
+    .slice(0, 3);
   if (!entries.length) return '';
   const max = Math.max(...entries.map(([, v]) => Math.abs(v)), 0.5);
 
-  return `<p class="label">What separates him from the others</p>` + entries.map(([g, v]) => {
+  return '<div class="drivers">' + entries.map(([g, v]) => {
     const width = (Math.abs(v) / max) * 46;
     const bar = v > 0
       ? `<i style="left:50%;width:${width}%;background:var(--up)"></i>`
@@ -432,65 +433,53 @@ function renderDrivers(rel) {
       <div class="track">${bar}</div>
       <b style="color:var(${v > 0 ? '--up' : '--down'})">${signed(v)}</b>
     </div>`;
-  }).join('');
+  }).join('') + '</div>';
 }
 
-function renderStats(player) {
-  const s = player.stats;
-  const cards = [];
-  const trendTag = (v) => v == null ? ''
-    : `<em class="${v >= 0 ? 'up' : 'down'}">${v >= 0 ? '+' : '\u2212'}${Math.abs(Math.round(v * 100))} pts</em>`;
-
-  cards.push(`<div class="stat"><p>Snap share</p><b>${pct(s.snapShare)}</b>${trendTag(s.snapTrend)}</div>`);
-  if (player.position === 'RB') {
-    cards.push(`<div class="stat"><p>Carry share</p><b>${pct(s.carryShare)}</b></div>`);
-    cards.push(`<div class="stat"><p>Goal-line share</p><b>${pct(s.glShare)}</b></div>`);
-  } else if (player.position === 'QB') {
-    cards.push(`<div class="stat"><p>Games played</p><b>${s.gamesPlayed}</b></div>`);
-  } else {
-    cards.push(`<div class="stat"><p>Target share</p><b>${pct(s.targetShare)}</b>${trendTag(s.targetTrend)}</div>`);
-    cards.push(`<div class="stat"><p>Route rate</p><b>${pct(s.routeRate)}</b></div>`);
+function renderStatLine(row) {
+  const p = row.player;
+  const s = p.stats;
+  const pill = confidencePill(row);
+  const items = pill ? [`<span class="pill ${pill.cls}">${pill.text}</span>`] : [];
+  items.push(`Snap share ${pct(s.snapShare)}`);
+  if (p.position === 'RB') {
+    items.push(`Carry share ${pct(s.carryShare)}`, `Goal-line share ${pct(s.glShare)}`);
+  } else if (p.position !== 'QB') {
+    items.push(`Target share ${pct(s.targetShare)}`, `Route rate ${pct(s.routeRate)}`);
   }
   if (s.actualTd != null && s.expectedTd != null) {
-    const gap = s.actualTd - s.expectedTd;
-    const tag = Math.abs(gap) > 1.4
-      ? `<em class="${gap > 0 ? 'down' : 'up'}">${gap > 0 ? 'Due to regress' : 'Due positive'}</em>` : '';
-    cards.push(`<div class="stat"><p>Touchdowns vs expected</p>
-      <b>${Math.round(s.actualTd)} / ${s.expectedTd.toFixed(1)}</b>${tag}</div>`);
+    items.push(`${Math.round(s.actualTd)} TD vs ${s.expectedTd.toFixed(1)} expected`);
   }
-  return `<div class="statgrid">${cards.join('')}</div>`;
+  return `<p class="statline">${items.map(i => `<span>${i}</span>`).join('')}</p>`;
 }
 
 function renderRanking(rows) {
-  const list = $('#ranking');
-  list.innerHTML = rows.map((row, i) => {
+  const compared = rows.length > 1;
+  $('#ranking').innerHTML = rows.map((row, i) => {
     const p = row.player;
-    const pill = confidencePill(row);
     const others = rows.filter(r => r !== row).map(r => r.displayName);
-    const vorpCls = row.vorp > 0.8 ? 'good' : row.vorp < -0.4 ? 'bad' : 'warn';
     return `<li>
       <details class="row"${i === 0 ? ' open' : ''}>
         <summary class="row-head">
           <span class="rank">${i + 1}</span>
-          <span>
-            <span class="row-name">
-              <strong>${p.name}</strong>
-              <span class="tag">${p.position} \u00b7 ${p.team}</span>
-              <span class="pill ${vorpCls}">${signed(row.vorp)} over replacement</span>
-              ${pill ? `<span class="pill ${pill.cls}">${pill.text}</span>` : ''}
-            </span>
-            <span class="row-sum">${summaryLine(row, row.rel, i + 1)}</span>
+          ${avatar(p, 'lg')}
+          <span class="row-main">
+            <strong>${p.name}</strong>
+            <span class="row-meta">${p.position} \u00b7 ${p.team} \u00b7
+              <span class="${row.vorp >= 0 ? 'up' : 'down'}">${signed(row.vorp)}</span> over replacement</span>
           </span>
           <span class="row-pts">
             <b>${row.ppg.toFixed(1)}</b>
             <span>${row.p10.toFixed(1)}\u2013${row.p90.toFixed(1)}</span>
           </span>
-          <span class="chev" aria-hidden="true"></span>
+          <button class="remove" type="button" data-remove="${p.id}" aria-label="Remove ${p.name}">
+            <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3 L11 11 M11 3 L3 11"/></svg>
+          </button>
         </summary>
         <div class="row-body">
-          ${renderDrivers(row.rel)}
-          ${renderStats(p)}
-          <p class="reason">${reasoning(row, i + 1, others)}</p>
+          ${compared ? renderDrivers(row.rel) : ''}
+          ${renderStatLine(row)}
+          ${compared ? `<p class="reason">${reasoning(row, i + 1, others)}</p>` : ''}
         </div>
       </details>
     </li>`;
@@ -498,64 +487,70 @@ function renderRanking(rows) {
 }
 
 function rangeLabel() {
-  const m = state.data.meta;
-  if (state.preset === 'rest') return 'Rest of season';
   if (state.preset === 'playoffs') return 'Fantasy playoffs';
-  if (state.preset === 'week') return `Week ${state.fromWeek}`;
+  if (state.fromWeek === state.toWeek) return `Week ${state.fromWeek}`;
   return `Weeks ${state.fromWeek}\u2013${state.toWeek}`;
 }
 
-function runComparison() {
-  const players = state.picked;
-  if (players.length < 2) return;
-  const rows = rank(players, state.fromWeek, state.toWeek);
+// There is no compare step: the list re-ranks, and the answer is rewritten,
+// every time a player or a setting changes.
+function render() {
+  const n = state.picked.length;
+  $('#intro').hidden = n > 0;
+  $('#hint').hidden = n !== 1;
+  $('#answer').hidden = n < 2;
+  $('#footnote').hidden = n === 0;
+  if (!n) { $('#ranking').innerHTML = ''; return; }
 
-  $('#resultsTitle').textContent = `${rangeLabel()} ranking`;
-  const fmt = state.data.meta.scoringFormats[state.format].label;
-  $('#resultsMeta').textContent =
-    `${fmt} \u00b7 ${state.leagueSize}-team league \u00b7 weeks ${state.fromWeek}\u2013${state.toWeek}`;
-  $('#verdict').textContent = verdictLine(rows);
-
-  const flip = flipNote(rows, state.fromWeek, state.toWeek);
-  const flipEl = $('#flipNote');
-  flipEl.textContent = flip || '';
-  flipEl.hidden = !flip;
-
+  const rows = rank(state.picked, state.fromWeek, state.toWeek);
   renderRanking(rows);
-  $('#entryPanel').hidden = true;
-  $('#resultsPanel').hidden = false;
-  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const span = state.fromWeek === state.toWeek
+    ? `week ${state.fromWeek}` : `weeks ${state.fromWeek}\u2013${state.toWeek}`;
+  $('#footnote').textContent = `Points per game over ${span}, with byes and missed ` +
+    'games priced in. Value over replacement compares each player with the best ' +
+    'free agent at his position in a league your size.';
+  if (n < 2) return;
+
+  const answer = headline(rows);
+  $('#answerLabel').className = `pill ${answer.tone}`;
+  $('#answerLabel').textContent = answer.label;
+  $('#answerTitle').textContent = answer.title;
+  $('#answerSub').textContent = answer.sub;
+  const flip = flipNote(rows, state.fromWeek, state.toWeek);
+  $('#flipNote').textContent = flip || '';
+  $('#flipNote').hidden = !flip;
 }
 
 /* -- Entry UI ------------------------------------------------------------ */
 
-function renderPicked() {
-  const list = $('#picked');
-  list.innerHTML = state.picked.map(p => `
-    <li>${p.name} <span class="tag">${p.position} \u00b7 ${p.team}</span>
-      <button type="button" data-remove="${p.id}" aria-label="Remove ${p.name}">
-        <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3 L11 11 M11 3 L3 11"/></svg>
-      </button></li>`).join('');
-
-  const btn = $('#compare');
-  btn.disabled = state.picked.length < 2;
-  btn.textContent = state.picked.length < 2
-    ? 'Add two players to compare'
-    : `Compare ${state.picked.length} players`;
+// Punctuation, accents, spaces and suffixes are ignored, so "cj stroud" finds
+// C.J. Stroud and "devon achane" finds De'Von Achane.
+function nameKey(s) {
+  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/\b(jr|sr|ii|iii|iv|v)\b/g, '').replace(/[^a-z0-9]/g, '');
 }
 
 function search(query) {
-  const q = query.trim().toLowerCase();
+  const q = nameKey(query);
   if (q.length < 2) return [];
   const picked = new Set(state.picked.map(p => p.id));
+  const starts = p => (p.key.startsWith(q) || p.lastKey.startsWith(q) ? 0 : 1);
   return state.data.players
-    .filter(p => !picked.has(p.id) && p.name.toLowerCase().includes(q))
-    .sort((a, b) => {
-      const aStarts = a.name.toLowerCase().startsWith(q) ? 0 : 1;
-      const bStarts = b.name.toLowerCase().startsWith(q) ? 0 : 1;
-      return aStarts - bStarts || a.name.localeCompare(b.name);
-    })
+    .filter(p => !picked.has(p.id) && p.key.includes(q))
+    .sort((a, b) => starts(a) - starts(b) || a.name.localeCompare(b.name))
     .slice(0, 8);
+}
+
+function initials(name) {
+  return (name[0] + lastName(name)[0]).replace(/[^A-Za-z]/g, '').toUpperCase();
+}
+
+// A photo that fails to load falls back to initials rather than a broken image.
+function avatar(p, size = '') {
+  const letters = initials(p.name);
+  if (!p.headshot) return `<span class="avatar ${size}">${letters}</span>`;
+  return `<span class="avatar ${size}" data-initials="${letters}"><img src="${p.headshot}" alt=""
+    loading="lazy" onerror="this.parentElement.textContent = this.parentElement.dataset.initials"></span>`;
 }
 
 function renderSuggestions(results) {
@@ -563,7 +558,8 @@ function renderSuggestions(results) {
   if (!results.length) { box.hidden = true; box.innerHTML = ''; return; }
   box.innerHTML = results.map((p, i) =>
     `<li role="option" data-add="${p.id}" ${i === 0 ? 'aria-selected="true"' : ''}>
-      <span>${p.name}</span><span class="tag">${p.position} \u00b7 ${p.team}</span></li>`).join('');
+      <span class="who">${avatar(p)}<span>${p.name}</span></span>
+      <span class="tag">${p.position} \u00b7 ${p.team}</span></li>`).join('');
   box.hidden = false;
   $('#search').setAttribute('aria-expanded', 'true');
 }
@@ -576,11 +572,15 @@ function addPlayer(id) {
     return;
   }
   state.picked.push(p);
-  $('#search').value = '';
+  const input = $('#search');
+  input.value = '';
   $('#suggestions').hidden = true;
-  $('#search').setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-expanded', 'false');
   showError(null);
-  renderPicked();
+  render();
+  // Until there are two players the next step is always another search, so
+  // the keyboard stays up. After that the answer is what people want to see.
+  if (state.picked.length < 2) input.focus();
 }
 
 function showError(message) {
@@ -654,15 +654,6 @@ function openSheet(kind) {
         `data-league="${n}"`)).join('');
   }
 
-  if (kind === 'need') {
-    title = 'Position you need';
-    body.innerHTML = [['any', 'Any position', 'Rank purely on value'],
-      ['QB', 'Quarterback', ''], ['RB', 'Running back', ''],
-      ['WR', 'Wide receiver', ''], ['TE', 'Tight end', '']]
-      .map(([key, label, sub]) =>
-        option(state.need === key, label, sub, `data-need="${key}"`)).join('');
-  }
-
   $('#sheetTitle').textContent = title;
   $('#scrim').hidden = false;
   $('#sheetClose').focus();
@@ -684,7 +675,6 @@ function syncSettings() {
   $('#formatValue').textContent = state.data.meta.scoringFormats[state.format].label
     + (state.tePremium ? ` +${state.tePremium} TE` : '');
   $('#leagueValue').textContent = `${state.leagueSize} teams`;
-  $('#needValue').textContent = state.need === 'any' ? 'Any position' : state.need;
 }
 
 /* -- Wiring -------------------------------------------------------------- */
@@ -717,12 +707,14 @@ function wire() {
     if (li) addPlayer(li.dataset.add);
   });
 
-  $('#picked').addEventListener('click', e => {
+  $('#ranking').addEventListener('click', e => {
     const btn = e.target.closest('[data-remove]');
     if (!btn) return;
+    // The button sits inside the row's summary, so stop it toggling the row.
+    e.preventDefault();
     state.picked = state.picked.filter(p => p.id !== btn.dataset.remove);
     showError(null);
-    renderPicked();
+    render();
   });
 
   document.addEventListener('click', e => {
@@ -732,24 +724,9 @@ function wire() {
     }
   });
 
-  $('#compare').addEventListener('click', () => {
-    if (state.picked.length < 2) {
-      showError('Add at least two players before comparing.');
-      return;
-    }
-    runComparison();
-  });
-
-  $('#back').addEventListener('click', () => {
-    $('#resultsPanel').hidden = true;
-    $('#entryPanel').hidden = false;
-    window.scrollTo({ top: 0 });
-  });
-
   $('#weekSetting').addEventListener('click', () => openSheet('weeks'));
   $('#formatSetting').addEventListener('click', () => openSheet('format'));
   $('#leagueSetting').addEventListener('click', () => openSheet('league'));
-  $('#needSetting').addEventListener('click', () => openSheet('need'));
   $('#sheetClose').addEventListener('click', closeSheet);
   $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeSheet(); });
   document.addEventListener('keydown', e => {
@@ -764,7 +741,6 @@ function wire() {
     else if (d.format) { state.format = d.format; syncSettings(); closeSheet(); }
     else if (d.te !== undefined) { state.tePremium = Number(d.te); syncSettings(); closeSheet(); }
     else if (d.league) { state.leagueSize = Number(d.league); syncSettings(); closeSheet(); }
-    else if (d.need) { state.need = d.need; syncSettings(); closeSheet(); }
     else if (d.apply === 'custom') {
       const from = Number($('#fromSel').value);
       const to = Number($('#toSel').value);
@@ -776,8 +752,7 @@ function wire() {
       state.fromWeek = from; state.toWeek = to; state.preset = 'custom';
       syncSettings(); closeSheet();
     }
-    // Keep the results in step when settings change after a comparison.
-    if (!$('#resultsPanel').hidden && state.picked.length >= 2) runComparison();
+    render();
   });
 }
 
@@ -790,10 +765,15 @@ async function boot() {
     state.data = await res.json();
   } catch (err) {
     $('#dataStamp').textContent = 'Data unavailable';
-    $('#entryPanel').insertAdjacentHTML('beforeend',
+    $('#panel').insertAdjacentHTML('beforeend',
       '<p class="error">Projections could not be loaded. Run the weekly build ' +
       'to generate data/projections.json, then reload.</p>');
     return;
+  }
+
+  for (const p of state.data.players) {
+    p.key = nameKey(p.name);
+    p.lastKey = nameKey(lastName(p.name));
   }
 
   const meta = state.data.meta;
@@ -813,7 +793,7 @@ async function boot() {
   }
 
   syncSettings();
-  renderPicked();
+  render();
   wire();
 }
 
