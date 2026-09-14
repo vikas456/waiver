@@ -397,6 +397,9 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
         path = out / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
+    # The compare tool links each player who has a page to it.
+    (out / "data").mkdir(parents=True, exist_ok=True)
+    (out / "data/player-pages.json").write_text(json.dumps(slug, separators=(",", ":"), sort_keys=True))
 
     # A waiver page from an earlier build stays listed if this week's adds
     # could not be fetched, so the sitemap never drops a live page.

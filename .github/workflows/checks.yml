@@ -38,6 +38,7 @@ jobs:
         run: |
           python -m pipeline.pages --out "$RUNNER_TEMP/pages" --no-trending
           test -f "$RUNNER_TEMP/pages/rankings/qb/index.html"
+          test -f "$RUNNER_TEMP/pages/data/player-pages.json"
 
       - uses: actions/setup-node@v4
         with:

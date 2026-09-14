@@ -284,6 +284,9 @@ a.wordmark { text-decoration: none; }
 
 .statline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.875rem; font-size: 0.75rem; color: var(--ink-3); }
 .reason { font-size: 0.875rem; line-height: 1.7; color: var(--ink-2); }
+.outlook { align-self: flex-start; font-size: 0.8125rem; font-weight: 500; color: var(--pine); text-underline-offset: 3px; }
+.outlook::after { content: " \2192"; }
+.outlook:hover { text-decoration-thickness: 2px; }
 .hint { font-size: 0.8125rem; color: var(--ink-3); }
 .footnote { font-size: 0.75rem; color: var(--ink-3); line-height: 1.6; }
 
@@ -298,7 +301,7 @@ a.wordmark { text-decoration: none; }
 .icon { background: none; border: 0; cursor: pointer; padding: 0.25rem; color: var(--ink-3); display: inline-flex; }
 .icon svg { width: 1.125rem; height: 1.125rem; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
 
-:where(button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--pine); outline-offset: 2px; }
+:where(a, button, input, summary, [tabindex]):focus-visible { outline: 2px solid var(--pine); outline-offset: 2px; }
 
 /* Sheet ------------------------------------------------------------------*/
 .scrim {

@@ -16,6 +16,7 @@ const REPLACEMENT_PER_TEAM = { QB: 1.5, RB: 2.5, WR: 3.0, TE: 1.2 };
 
 const state = {
   data: null,
+  pages: {},
   picked: [],
   fromWeek: null,
   toWeek: null,
@@ -495,6 +496,7 @@ function renderRanking(rows) {
           ${compared ? renderDrivers(row.rel) : ''}
           ${renderStatLine(row)}
           ${compared ? `<p class="reason">${esc(reasoning(row, i + 1, others))}</p>` : ''}
+          ${state.pages[p.id] ? `<a class="outlook" href="/players/${esc(state.pages[p.id])}/">See ${esc(p.name)}’s full outlook</a>` : ''}
         </div>
       </details>
     </li>`;
@@ -851,6 +853,11 @@ function wire() {
 /* -- Boot ---------------------------------------------------------------- */
 
 async function boot() {
+  // Which players have a page of their own. Fetched alongside the projections
+  // but never waited on: without it the results simply carry no links.
+  const pages = fetch('data/player-pages.json')
+    .then(res => (res.ok ? res.json() : {}))
+    .catch(() => ({}));
   try {
     const res = await fetch('data/projections.json');
     if (!res.ok) throw new Error(res.statusText);
@@ -888,6 +895,9 @@ async function boot() {
   syncSettings();
   render();
   wire();
+
+  state.pages = await pages;
+  if (state.picked.length) render();
 }
 
 boot();
