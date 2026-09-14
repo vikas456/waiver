@@ -16,6 +16,8 @@ import argparse
 import html
 import json
 import re
+import shutil
+import unicodedata
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -38,7 +40,11 @@ FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
   <a href="/rankings/rb/">RB</a>
   <a href="/rankings/wr/">WR</a>
   <a href="/rankings/te/">TE</a>
+  <a href="/terms/">Terms</a>
+  <a href="/privacy/">Privacy</a>
 </footer>"""
+# Hand-written pages that belong in the sitemap alongside the generated ones.
+STATIC_PATHS = ["/terms/", "/privacy/"]
 
 e = html.escape
 
@@ -98,12 +104,12 @@ def _signed(v: float) -> str:
 
 
 def _shell(meta: dict, path: str, title: str, description: str, body: str,
-           analytics: str, data: dict | None = None) -> str:
+           analytics: str, data: list[dict] | None = None) -> str:
     url = SITE + path
     generated = datetime.fromisoformat(meta["generated"])
     stamp = f"Season {meta['season']} · week {meta['fromWeek']} · updated {generated:%b} {generated.day}"
-    ld = (f'<script type="application/ld+json">{json.dumps(data, ensure_ascii=False)}</script>\n'
-          if data else "")
+    ld = "".join(f'<script type="application/ld+json">{json.dumps(d, ensure_ascii=False)}</script>\n'
+                 for d in data or [])
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -118,11 +124,13 @@ def _shell(meta: dict, path: str, title: str, description: str, body: str,
 <meta property="og:title" content="{e(title)}">
 <meta property="og:description" content="{e(description)}">
 <meta property="og:image" content="{SITE}/og-image.png">
+<meta property="og:image:alt" content="Waiver: who should you pick up? Fantasy football waiver picks from an AI model.">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
 <link rel="stylesheet" href="/styles.css">
 {ld}</head>
 <body>
@@ -151,7 +159,34 @@ def _position_nav(current: str | None) -> str:
     return f'<nav class="board-nav" aria-label="Rankings by position">{"".join(links)}</nav>'
 
 
-def _item_list(title: str, players: list[dict]) -> dict:
+def slugs(players: list[dict]) -> dict[str, str]:
+    """A readable, stable address per player, such as josh-allen. Two players
+    who share a name are told apart by position, then team."""
+    def plain(text: str) -> str:
+        text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode().lower()
+        # Apostrophes and full stops vanish rather than split a name, so the
+        # address reads the way people type it: jamarr-chase, aj-brown.
+        text = re.sub(r"['.]", "", text)
+        return re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+
+    base = {p["id"]: plain(p["name"]) for p in players}
+    counts: dict[str, int] = {}
+    for s in base.values():
+        counts[s] = counts.get(s, 0) + 1
+    out = {}
+    for p in players:
+        s = base[p["id"]]
+        if counts[s] > 1:
+            s = f"{s}-{plain(p['position'])}-{plain(p['team'])}"
+        out[p["id"]] = s
+    return out
+
+
+def _player_link(p: dict, slug: dict) -> str:
+    return f'<a href="/players/{slug[p["id"]]}/">{e(p["name"])}</a>' if p["id"] in slug else e(p["name"])
+
+
+def _item_list(title: str, players: list[dict], slug: dict) -> dict:
     return {
         "@context": "https://schema.org",
         "@type": "ItemList",
@@ -159,19 +194,32 @@ def _item_list(title: str, players: list[dict]) -> dict:
         "itemListOrder": "https://schema.org/ItemListOrderDescending",
         "numberOfItems": len(players),
         "itemListElement": [
-            {"@type": "ListItem", "position": i, "name": p["name"], "url": f"{SITE}/?p={p['id']}"}
+            {"@type": "ListItem", "position": i, "name": p["name"],
+             "url": f"{SITE}/players/{slug[p['id']]}/" if p["id"] in slug else f"{SITE}/?p={p['id']}"}
             for i, p in enumerate(players, start=1)],
     }
 
 
-def position_page(meta: dict, pos: str, ranked: list[dict], ppg: dict, analytics: str) -> str:
+def _breadcrumbs(*trail: tuple[str, str]) -> dict:
+    """Home, then each (name, path) step, which search results show above the title."""
+    steps = [("Home", "/"), *trail]
+    return {
+        "@context": "https://schema.org",
+        "@type": "BreadcrumbList",
+        "itemListElement": [{"@type": "ListItem", "position": i, "name": name, "item": SITE + path}
+                            for i, (name, path) in enumerate(steps, start=1)],
+    }
+
+
+def position_page(meta: dict, pos: str, ranked: list[dict], ppg: dict, slug: dict,
+                  analytics: str) -> str:
     name = NAMES[pos]
     weeks = f"weeks {meta['fromWeek']}–{meta['throughWeek']}"
     title = f"Rest-of-season {pos} rankings for week {meta['fromWeek']}, {meta['season']} — Waiver"
     description = (f"Fantasy football rest-of-season {name} rankings for {weeks} in full PPR, "
                    "from an AI model tested against expert rankings. Updated weekly.")
     rows = "\n".join(
-        f'      <tr><td class="num">{i}</td><td>{e(p["name"])}</td><td>{e(p["team"])}</td>'
+        f'      <tr><td class="num">{i}</td><td>{_player_link(p, slug)}</td><td>{e(p["team"])}</td>'
         f'<td class="num">{ppg[p["id"]]:.1f}</td><td><a href="/?p={e(p["id"])}">Compare</a></td></tr>'
         for i, p in enumerate(ranked, start=1))
     body = f"""  <section class="board">
@@ -190,7 +238,8 @@ def position_page(meta: dict, pos: str, ranked: list[dict], ppg: dict, analytics
     </div>
   </section>"""
     return _shell(meta, f"/rankings/{pos.lower()}/", title, description, body, analytics,
-                  _item_list(title, ranked))
+                  [_item_list(title, ranked, slug),
+                   _breadcrumbs(("Rankings", "/rankings/"), (f"{pos} rankings", f"/rankings/{pos.lower()}/"))])
 
 
 def hub_page(meta: dict, by_pos: dict[str, list[dict]], analytics: str) -> str:
@@ -209,17 +258,70 @@ def hub_page(meta: dict, by_pos: dict[str, list[dict]], analytics: str) -> str:
 {cards}
     </ul>
   </section>"""
-    return _shell(meta, "/rankings/", title, description, body, analytics)
+    return _shell(meta, "/rankings/", title, description, body, analytics,
+                  [_breadcrumbs(("Rankings", "/rankings/"))])
+
+
+def player_page(meta: dict, p: dict, ppg: dict, rank: int, vor: float, weights: dict,
+                analytics: str) -> str:
+    pos, name = p["position"], p["name"]
+    weeks = f"weeks {meta['fromWeek']}–{meta['throughWeek']}"
+    title = f"{name} fantasy outlook, week {meta['fromWeek']} — Waiver"
+    description = (f"{name} ({pos}, {p['team']}) projects for {ppg[p['id']]:.1f} PPR points per game "
+                   f"over {weeks}, {pos}{rank} in Waiver's rankings. Updated weekly.")
+    s = p.get("stats", {})
+    pct = lambda v: "—" if v is None else f"{round(v * 100)}%"
+    usage = [("Snap share", s.get("snapShare"))]
+    if pos == "RB":
+        usage += [("Carry share", s.get("carryShare")), ("Goal-line share", s.get("glShare"))]
+    elif pos != "QB":
+        usage += [("Target share", s.get("targetShare")), ("Route rate", s.get("routeRate"))]
+    usage_rows = "".join(f"<div><dt>{label}</dt><dd>{pct(v)}</dd></div>" for label, v in usage)
+    schedule = "\n".join(
+        f'      <tr><td class="num">{w["w"]}</td><td>{e(w["opp"])}</td>'
+        f'<td class="num">{sum(v * weights.get(k, 0) for k, v in w["c"].items()):.1f}</td></tr>'
+        for w in p["weeks"])
+    byes = p.get("byeWeeks") or []
+    bye_note = f'<p class="footnote">Bye in week {", ".join(map(str, byes))}.</p>' if byes else ""
+    photo = (f'<img src="{e(p["headshot"])}" alt="{e(name)}" width="64" height="64">'
+             if p.get("headshot") else "")
+    body = f"""  <article class="board">
+    <div class="player-head">{photo}
+      <div><h1>{e(name)} rest-of-season outlook</h1>
+      <p class="meta">{e(pos)} · {e(p["team"])} · {e(pos)}{rank} in the rankings</p></div>
+    </div>
+    <dl class="figures">
+      <div><dt>Points per game, PPR</dt><dd>{ppg[p["id"]]:.1f}</dd></div>
+      <div><dt>Over replacement, 12 teams</dt><dd>{_signed(vor)}</dd></div>
+      {usage_rows}
+    </dl>
+    <p class="lede">Projected for {weeks}, counting the chance he misses a game. The table
+      shows what he projects for in each game he plays.</p>
+    <div class="board-table-wrap">
+    <table class="board-table">
+      <thead><tr><th scope="col" class="num">Week</th><th scope="col">Opponent</th><th scope="col" class="num">Projected points</th></tr></thead>
+      <tbody>
+{schedule}
+      </tbody>
+    </table>
+    </div>
+    {bye_note}
+    <p><a class="share" href="/?p={e(p["id"])}">Compare {e(name)} with another player</a></p>
+    <p><a href="/rankings/{pos.lower()}/">See all {NAMES[pos]} rankings</a></p>
+  </article>"""
+    return _shell(meta, f"/players/{{slug}}/", title, description, body, analytics,
+                  [_breadcrumbs(("Rankings", "/rankings/"), (f"{pos} rankings", f"/rankings/{pos.lower()}/"),
+                                (name, "/players/{slug}/"))])
 
 
 def waiver_page(meta: dict, rows: list[tuple[dict, int]], ppg: dict, levels: dict,
-                analytics: str) -> str:
+                slug: dict, analytics: str) -> str:
     title = f"Waiver wire pickups for week {meta['fromWeek']}, {meta['season']} — Waiver"
     description = (f"The most-added fantasy football players for week {meta['fromWeek']}, ranked by "
                    "how much each is projected to help your team for the rest of the season.")
     ranked = sorted(rows, key=lambda r: ppg[r[0]["id"]] - levels[r[0]["position"]], reverse=True)
     table = "\n".join(
-        f'      <tr><td class="num">{i}</td><td>{e(p["name"])}</td><td>{e(p["position"])}</td>'
+        f'      <tr><td class="num">{i}</td><td>{_player_link(p, slug)}</td><td>{e(p["position"])}</td>'
         f'<td>{e(p["team"])}</td><td class="num">{ppg[p["id"]]:.1f}</td>'
         f'<td class="num">{_signed(ppg[p["id"]] - levels[p["position"]])}</td>'
         f'<td class="num">{adds:,}</td><td><a href="/?p={e(p["id"])}">Compare</a></td></tr>'
@@ -242,7 +344,8 @@ def waiver_page(meta: dict, rows: list[tuple[dict, int]], ppg: dict, levels: dic
     </div>
   </section>"""
     return _shell(meta, "/waiver-wire/", title, description, body, analytics,
-                  _item_list(title, [p for p, _ in ranked]))
+                  [_item_list(title, [p for p, _ in ranked], slug),
+                   _breadcrumbs(("Waiver pickups", "/waiver-wire/"))])
 
 
 def sitemap(paths: list[str], lastmod: str) -> str:
@@ -265,14 +368,31 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
                           key=lambda p: ppg[p["id"]], reverse=True)[:DEPTH[pos]]
               for pos in POSITIONS}
 
-    pages = {"rankings/index.html": hub_page(meta, by_pos, analytics)}
-    for pos in POSITIONS:
-        pages[f"rankings/{pos.lower()}/index.html"] = position_page(meta, pos, by_pos[pos], ppg, analytics)
     by_id = {p["id"]: p for p in players}
     trending = [(by_id[gsis], n) for gsis, n in adds if gsis in by_id]
-    if trending:
-        pages["waiver-wire/index.html"] = waiver_page(meta, trending, ppg, levels, analytics)
 
+    # Everyone ranked or trending gets a page of their own: the searches a
+    # new site can win are specific ones, such as a player's name.
+    featured = {p["id"]: p for group in by_pos.values() for p in group}
+    featured.update({p["id"]: p for p, _ in trending})
+    slug = slugs(list(featured.values()))
+    pos_rank = {}
+    for pos in POSITIONS:
+        ordered = sorted((p for p in players if p["position"] == pos), key=lambda p: ppg[p["id"]], reverse=True)
+        pos_rank.update({p["id"]: i for i, p in enumerate(ordered, start=1)})
+
+    pages = {"rankings/index.html": hub_page(meta, by_pos, analytics)}
+    for pos in POSITIONS:
+        pages[f"rankings/{pos.lower()}/index.html"] = position_page(meta, pos, by_pos[pos], ppg, slug, analytics)
+    if trending:
+        pages["waiver-wire/index.html"] = waiver_page(meta, trending, ppg, levels, slug, analytics)
+    for pid, p in featured.items():
+        page = player_page(meta, p, ppg, pos_rank[pid], ppg[pid] - levels[p["position"]], weights, analytics)
+        pages[f"players/{slug[pid]}/index.html"] = page.replace("{slug}", slug[pid])
+
+    # Last week's player pages go, so a player who drops out of the rankings
+    # does not leave a stale page behind.
+    shutil.rmtree(out / "players", ignore_errors=True)
     for rel, text in pages.items():
         path = out / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -280,7 +400,8 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
 
     # A waiver page from an earlier build stays listed if this week's adds
     # could not be fetched, so the sitemap never drops a live page.
-    listed = ["/", "/waiver-wire/", "/rankings/"] + [f"/rankings/{p.lower()}/" for p in POSITIONS]
+    listed = (["/", "/waiver-wire/", "/rankings/"] + [f"/rankings/{p.lower()}/" for p in POSITIONS]
+              + [f"/players/{s}/" for s in sorted(slug.values())] + STATIC_PATHS)
     if not (out / "waiver-wire/index.html").exists():
         listed.remove("/waiver-wire/")
     lastmod = datetime.fromisoformat(meta["generated"]).date().isoformat()
@@ -305,7 +426,8 @@ def main() -> None:
     match = ANALYTICS.search(index.read_text()) if index.exists() else None
     written = build(payload, args.out, [] if args.no_trending else trending_adds(),
                     match.group(0) if match else "")
-    print(f"Wrote {len(written)} pages and a sitemap to {args.out}: {', '.join(written)}")
+    players = sum(1 for w in written if w.startswith("players/"))
+    print(f"Wrote {len(written)} pages, {players} of them player pages, and a sitemap to {args.out}")
 
 
 if __name__ == "__main__":

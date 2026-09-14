@@ -414,6 +414,10 @@ function flipNote(rows, from, to) {
 /* -- Rendering ----------------------------------------------------------- */
 
 const $ = sel => document.querySelector(sel);
+// Names come from the data file. Escaping them keeps a malformed name from
+// ever being read as markup.
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const pct = v => (v == null ? '\u2014' : `${Math.round(v * 100)}%`);
 const signed = v => `${v >= 0 ? '+' : '\u2212'}${Math.abs(v).toFixed(1)}`;
 
@@ -475,22 +479,22 @@ function renderRanking(rows) {
           <span class="rank">${i + 1}</span>
           ${avatar(p, 'lg')}
           <span class="row-main">
-            <strong>${p.name}</strong>
-            <span class="row-meta">${p.position} \u00b7 ${p.team} \u00b7
+            <strong>${esc(p.name)}</strong>
+            <span class="row-meta">${esc(p.position)} \u00b7 ${esc(p.team)} \u00b7
               <span class="${row.vorp >= 0 ? 'up' : 'down'}">${signed(row.vorp)}</span> over replacement</span>
           </span>
           <span class="row-pts">
             <b>${row.ppg.toFixed(1)}</b>
             <span>${row.p10.toFixed(1)}\u2013${row.p90.toFixed(1)}</span>
           </span>
-          <button class="remove" type="button" data-remove="${p.id}" aria-label="Remove ${p.name}">
+          <button class="remove" type="button" data-remove="${esc(p.id)}" aria-label="Remove ${esc(p.name)}">
             <svg viewBox="0 0 14 14" aria-hidden="true"><path d="M3 3 L11 11 M11 3 L3 11"/></svg>
           </button>
         </summary>
         <div class="row-body">
           ${compared ? renderDrivers(row.rel) : ''}
           ${renderStatLine(row)}
-          ${compared ? `<p class="reason">${reasoning(row, i + 1, others)}</p>` : ''}
+          ${compared ? `<p class="reason">${esc(reasoning(row, i + 1, others))}</p>` : ''}
         </div>
       </details>
     </li>`;
@@ -636,7 +640,7 @@ function initials(name) {
 function avatar(p, size = '') {
   const letters = initials(p.name);
   if (!p.headshot) return `<span class="avatar ${size}">${letters}</span>`;
-  return `<span class="avatar ${size}" data-initials="${letters}"><img src="${p.headshot}" alt=""
+  return `<span class="avatar ${size}" data-initials="${letters}"><img src="${esc(p.headshot)}" alt=""
     loading="lazy" onerror="this.parentElement.textContent = this.parentElement.dataset.initials"></span>`;
 }
 
@@ -645,8 +649,8 @@ function renderSuggestions(results) {
   if (!results.length) { box.hidden = true; box.innerHTML = ''; return; }
   box.innerHTML = results.map((p, i) =>
     `<li role="option" data-add="${p.id}" ${i === 0 ? 'aria-selected="true"' : ''}>
-      <span class="who">${avatar(p)}<span>${p.name}</span></span>
-      <span class="tag">${p.position} \u00b7 ${p.team}</span></li>`).join('');
+      <span class="who">${avatar(p)}<span>${esc(p.name)}</span></span>
+      <span class="tag">${esc(p.position)} \u00b7 ${esc(p.team)}</span></li>`).join('');
   box.hidden = false;
   $('#search').setAttribute('aria-expanded', 'true');
 }

@@ -15,6 +15,7 @@
 <meta property="og:image" content="https://fantasywaiverpicks.com/og-image.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Waiver: who should you pick up? Fantasy football waiver picks from an AI model.">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="data/projections.json" as="fetch" crossorigin>
 <script type="application/ld+json">
@@ -28,7 +29,10 @@
 </script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet">
+<!-- Fonts load without holding up the first paint: text shows in the fallback
+     face and switches to Archivo when it arrives. -->
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet" media="print" onload="this.media='all'">
+<noscript><link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet"></noscript>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -107,6 +111,8 @@
   <a href="/rankings/rb/">RB</a>
   <a href="/rankings/wr/">WR</a>
   <a href="/rankings/te/">TE</a>
+  <a href="/terms/">Terms</a>
+  <a href="/privacy/">Privacy</a>
 </footer>
 
 <!-- Settings dialog -->

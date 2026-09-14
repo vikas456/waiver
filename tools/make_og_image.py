@@ -60,7 +60,9 @@ def main() -> None:
         y += 50
     draw.text((80, 530), "fantasywaiverpicks.com", font=font(REGULAR, 30), fill=INK_2)
 
-    img.save(OUT, optimize=True)
+    # Five flat colours plus their anti-aliased edges fit easily in a small
+    # palette, which shrinks the file without any visible change.
+    img.quantize(colors=48).save(OUT, optimize=True)
     print(f"Wrote {OUT} ({OUT.stat().st_size // 1024} KB)")
 
 
