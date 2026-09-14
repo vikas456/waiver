@@ -43,6 +43,13 @@ FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
   <a href="/terms/">Terms</a>
   <a href="/privacy/">Privacy</a>
 </footer>"""
+# The one ad placement, after each page's main content, as in web/index.html.
+# web/ads.js fills and reveals it once the AdSense ids are set.
+AD_SLOT = """  <aside class="ad-slot" aria-label="Advertisement" hidden>
+    <p class="ad-label">Advertisement</p>
+    <div class="ad-unit"></div>
+    <p class="ad-note">Waiver is free to use, and ads help cover what it costs to run.</p>
+  </aside>"""
 # Hand-written pages that belong in the sitemap alongside the generated ones.
 STATIC_PATHS = ["/terms/", "/privacy/"]
 
@@ -143,10 +150,12 @@ def _shell(meta: dict, path: str, title: str, description: str, body: str,
 
 <main>
 {body}
+{AD_SLOT}
 </main>
 
 {FOOTER}
 {analytics}
+<script src="/ads.js" defer></script>
 </body>
 </html>
 """
