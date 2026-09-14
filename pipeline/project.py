@@ -218,10 +218,9 @@ def forecast(data: dict, season: int, from_week: int, through_week: int,
     for stat in STAT_COMPONENTS:
         if stat not in preds.columns:
             preds[stat] = 0.0
-    # Matchup adjustment on top of the model's own view of the opponent.
-    scale = future["def_factor"].to_numpy().clip(0.75, 1.3)
-    for stat in ["rec_yd", "rush_yd", "pass_yd", "rec_td", "rush_td", "pass_td", "reception"]:
-        preds[stat] = preds[stat].to_numpy() * scale
+    # The opponent reaches the forecast through the model's own features.
+    # Scaling by it again here counted the matchup twice, and backtested
+    # slightly worse in both seasons tried.
 
     model_preds = preds.copy()
     if ranks is not None and market_weight > 0:

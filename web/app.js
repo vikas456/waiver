@@ -508,6 +508,7 @@ function rangeLabel() {
 function render() {
   const n = state.picked.length;
   $('#intro').hidden = n > 0;
+  $('#why').hidden = n > 0;
   $('#hint').hidden = n !== 1;
   $('#answer').hidden = n < 2;
   $('#footnote').hidden = n === 0;

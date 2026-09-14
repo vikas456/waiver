@@ -4,8 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0e1211">
-<title>Waiver — who should you pick up?</title>
-<meta name="description" content="Rank NFL free agents for the rest of your fantasy season using usage and efficiency data, not box scores.">
+<title>Waiver — fantasy football waiver wire picks</title>
+<meta name="description" content="Compare fantasy football free agents and get a clear pick. An AI model trained on every NFL play, tested against expert rankings.">
+<link rel="canonical" href="https://fantasywaiverpicks.com/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://fantasywaiverpicks.com/">
+<meta property="og:title" content="Waiver — who should you pick up?">
+<meta property="og:description" content="Compare free agents and get a clear pick, with the reasons behind it.">
+<meta name="twitter:card" content="summary">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600&display=swap" rel="stylesheet">
@@ -41,6 +47,26 @@
       <button class="chip" id="leagueSetting" type="button" aria-haspopup="dialog"><span id="leagueValue">12 teams</span></button>
     </div>
     <p id="entryError" class="error" hidden></p>
+
+    <section class="why" id="why" aria-labelledby="whyTitle">
+      <h2 class="why-title" id="whyTitle">Why Waiver</h2>
+      <p class="why-proof"><b>85%</b>
+        <span>of the time, Waiver put two players in the right order when their
+          results were clearly different. The average of expert rankings
+          managed 83%, and going by recent points alone, 80%.</span></p>
+      <ul class="why-list">
+        <li><strong>An AI model trained on every play</strong>
+          <span>Five seasons of NFL play-by-play teach it what actually leads to points.</span></li>
+        <li><strong>Usage, not last week's box score</strong>
+          <span>Targets, carries and snaps predict future points better than points already scored.</span></li>
+        <li><strong>Lucky touchdowns don't fool it</strong>
+          <span>A player scoring more than his chances support is marked down, not chased.</span></li>
+        <li><strong>It knows who is playing</strong>
+          <span>Depth charts and injury reports push backups and injured players down.</span></li>
+      </ul>
+      <p class="why-note">Tested on every week of the 2024 and 2025 seasons, predicting
+        four weeks ahead. Past accuracy is no guarantee of future results.</p>
+    </section>
 
     <div class="answer" id="answer" aria-live="polite" hidden>
       <span class="pill" id="answerLabel"></span>

@@ -159,12 +159,14 @@ def main() -> None:
     ap.add_argument("--out", help="write per-week, per-position results to this CSV")
     args = ap.parse_args()
 
+    # Testing an earlier season must not train on the seasons after it.
+    seasons = [s for s in TRAIN_SEASONS if s <= args.season]
     if args.source == "synthetic":
         from .synth import generate
-        data = generate(TRAIN_SEASONS)
+        data = generate(seasons)
     else:
         from .ingest import load_all
-        data = load_all(TRAIN_SEASONS)
+        data = load_all(seasons)
 
     res = run(data, season=args.season, start_week=args.start_week, end_week=args.end_week,
               horizon=args.horizon, rounds=args.rounds, market_weight=args.market_weight,

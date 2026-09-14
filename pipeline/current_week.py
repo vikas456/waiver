@@ -8,7 +8,8 @@ from .config import CURRENT_SEASON
 
 # The Thursday of week one. Update once a year, or read it from the schedule
 # if the nflverse data is already cached locally.
-SEASON_OPENER = {2025: date(2025, 9, 4), 2026: date(2026, 9, 10)}
+SEASON_OPENER = {2023: date(2023, 9, 7), 2024: date(2024, 9, 5),
+                 2025: date(2025, 9, 4), 2026: date(2026, 9, 10)}
 
 
 def current_week(today: date | None = None, season: int = CURRENT_SEASON) -> int:

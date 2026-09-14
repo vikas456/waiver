@@ -83,16 +83,19 @@ consensus. Expect roughly 3 to 8 points of pairwise accuracy over the trailing a
 approach is working as intended. If you see less than 2, something is wrong —
 start by checking that `--from-week` is right and that the cache is current.
 
-On the 2025 season, run in September 2026, the share of player pairs put in
-the right order was:
+Run in September 2026, the share of player pairs put in the right order was:
 
-| | Model | What the site ships | FantasyPros | Last four games | Season average |
-|---|---|---|---|---|---|
-| Weeks 1–2 | 0.831 | 0.855, an even blend | 0.856 | 0.772 | 0.775 |
-| Week 3 on | 0.853 | 0.857, a 25% blend | 0.816 | 0.804 | 0.813 |
+| Season | Weeks | Model | What the site ships | FantasyPros | Last four games | Season average |
+|---|---|---|---|---|---|---|
+| 2025 | 1–2 | 0.832 | 0.855 | 0.856 | 0.772 | 0.775 |
+| 2025 | 3 on | 0.853 | 0.857 | 0.816 | 0.804 | 0.813 |
+| 2024 | 1–2 | 0.800 | 0.826 | 0.829 | 0.786 | 0.780 |
+| 2024 | 3 on | 0.850 | 0.854 | 0.835 | 0.809 | 0.817 |
 
-Quarterbacks remain the weakest position. The blend weights were chosen on
-this same season, so treat the margins as a ceiling until 2026 confirms them.
+The site ships an even blend with the consensus in weeks 1 and 2 and a 25%
+blend after. Those weights were set on 2025; 2024 was held back as an
+untouched check, and the edge over the consensus from week 3 was smaller
+there. Quarterbacks remain the weakest position.
 
 ## 4. Deploy
 

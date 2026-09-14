@@ -34,7 +34,6 @@ PRODUCTION_COLS = ["attempts", "completions", "pass_yd", "pass_td", "interceptio
 ROLLED_COLS = (SHARE_COLS + EFF_COLS + PRODUCTION_COLS
                + ["td_oe", "expected_td", "actual_td", "targets", "carries"])
 
-
 # ---------------------------------------------------------------------------
 # Shrinkage
 # ---------------------------------------------------------------------------
