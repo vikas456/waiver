@@ -289,7 +289,15 @@ a.wordmark { text-decoration: none; }
 .statline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.875rem; font-size: 0.75rem; color: var(--ink-3); }
 .reason { font-size: 0.875rem; line-height: 1.7; color: var(--ink-2); }
 /* Sleeper league ---------------------------------------------------------*/
-.chip-league span { display: inline-block; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.chip-league #sleeperValue { display: inline-block; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.beta {
+  display: inline-block; vertical-align: 0.1em; margin-left: 0.25rem;
+  padding: 0.0625rem 0.375rem; border-radius: 999px;
+  background: var(--pine-soft); color: var(--pine);
+  font-size: 0.625rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
+}
+.beta-note { font-size: 0.8125rem; color: var(--ink-2); line-height: 1.5; }
+.beta-note .beta { margin: 0 0.375rem 0 0; }
 .league { display: flex; flex-direction: column; gap: 0.875rem; margin-top: 1.5rem; }
 .league-head { display: flex; flex-direction: column; gap: 0.125rem; }
 .league-head h2 { font-size: 1.25rem; font-weight: 500; margin: 0; text-wrap: balance; }

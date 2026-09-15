@@ -784,6 +784,8 @@ function showError(message) {
 // are remembered, in this browser.
 const SLEEPER = 'https://api.sleeper.app/v1';
 const LEAGUE_KEY = 'waiver.league';
+const BETA_NOTE = '<p class="beta-note"><span class="beta">Beta</span> League mode is new, so check ' +
+  'its picks against your league on Sleeper before acting on them.</p>';
 
 // How each Sleeper lineup slot is usually filled, for working out how deep
 // replacement level sits at each position in a particular league.
@@ -1045,7 +1047,7 @@ function renderLeague() {
     ? 'No free agent in your league lifts your starting lineup by enough to be worth a move right now.'
     : 'Your roster has no players the model projects yet, so there is nothing to compare against.';
   box.innerHTML = `<div class="league-head">
-      <h2 id="leagueTitle">Top pickups for ${esc(L.team)}</h2>
+      <h2 id="leagueTitle">Top pickups for ${esc(L.team)} <span class="beta">Beta</span></h2>
       <span>${esc(L.name)} · ${L.teams} teams · ${esc(state.data.meta.scoringFormats.league.label.replace('League scoring, ', ''))} · ${rangeLabel().toLowerCase()}</span>
     </div>
     ${rows ? `<ol class="picks">${rows}</ol>` : `<p class="league-note">${empty}</p>`}
@@ -1126,6 +1128,7 @@ function openSheet(kind) {
     title = L ? 'Your Sleeper league' : 'Connect a Sleeper league';
     body.innerHTML = L
       ? `<div class="connect">
+          ${BETA_NOTE}
           <p><strong>${esc(L.name)}</strong><br><small>${esc(L.team)} · ${L.teams} teams</small></p>
           <p class="hint">Scoring, league size and lineup come from Sleeper, and rosters were
             loaded when this page opened.</p>
@@ -1133,6 +1136,7 @@ function openSheet(kind) {
           <button class="opt" type="button" data-disconnect="1">Disconnect this league</button>
         </div>`
       : `<form class="connect" id="connectForm">
+          ${BETA_NOTE}
           <label class="label" for="sleeperInput">Sleeper username or league ID</label>
           <input id="sleeperInput" type="text" autocomplete="off" spellcheck="false"
                  autocapitalize="off" placeholder="Your Sleeper username">
