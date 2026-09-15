@@ -22,7 +22,7 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 
-from . import sleeper
+from . import disagree, sleeper
 from .config import POSITIONS, REPLACEMENT_RANK_PER_TEAM
 
 SITE = "https://fantasywaiverpicks.com"
@@ -40,6 +40,8 @@ FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
   <a href="/rankings/rb/">RB</a>
   <a href="/rankings/wr/">WR</a>
   <a href="/rankings/te/">TE</a>
+  <a href="/model-vs-experts/">Model vs experts</a>
+  <a href="/scorecard/">Scorecard</a>
   <a href="/terms/">Terms</a>
   <a href="/privacy/">Privacy</a>
 </footer>"""
@@ -418,6 +420,174 @@ def waiver_page(meta: dict, rows: list[tuple[dict, int]], ppg: dict, levels: dic
                    _breadcrumbs(("Waiver pickups", "/waiver-wire/"))])
 
 
+def _reason_text(p: dict, weights: dict, higher: bool, labels: dict) -> str:
+    # A quarterback runs no routes; for him that group comes down to snaps.
+    name = lambda g: "Snap share" if (g == "route_role" and p["position"] == "QB") else labels.get(g, g)
+    parts = [f"{name(g)} {_signed(v)}" for g, v in disagree.reasons(p, weights, higher)]
+    return " · ".join(parts) or "—"
+
+
+def experts_page(meta: dict, table: dict, slug: dict, labels: dict, analytics: str) -> str:
+    weights = meta["scoringFormats"]["ppr"]
+    weeks = f"weeks {meta['fromWeek']}–{meta['throughWeek']}"
+    title = f"Where the model disagrees with the experts, week {meta['fromWeek']} — Waiver"
+    description = ("The players Waiver's model ranks furthest from FantasyPros' expert consensus, "
+                   "by position, with what the model sees in each. Updated weekly.")
+    sections = []
+    for pos, sides in disagree.biggest(table, 5).items():
+        blocks = []
+        for side, heading in (("higher", "Waiver ranks him higher"), ("lower", "Waiver ranks him lower")):
+            if not sides[side]:
+                continue
+            rows = "\n".join(
+                f'      <tr><td>{_player_link(r["player"], slug)}{_tag(r["player"])}</td>'
+                f'<td class="num">{pos}{r["modelRank"]}</td><td class="num">{pos}{r["consensusRank"]}</td>'
+                f'<td class="num">{r["modelPpg"]:.1f}</td>'
+                f'<td>{e(_reason_text(r["player"], weights, side == "higher", labels))}</td></tr>'
+                for r in sides[side])
+            blocks.append(f"""    <h3>{heading}</h3>
+    <div class="board-table-wrap">
+    <table class="board-table">
+      <thead><tr><th scope="col">Player</th><th scope="col" class="num">Waiver</th><th scope="col" class="num">Experts</th><th scope="col" class="num">Points per game</th><th scope="col">What the model sees</th></tr></thead>
+      <tbody>
+{rows}
+      </tbody>
+    </table>
+    </div>""")
+        if blocks:
+            sections.append(f'    <h2 id="{pos.lower()}">{NAMES[pos].capitalize()}s</h2>\n' + "\n".join(blocks))
+    nav = "".join(f'<a href="#{pos.lower()}">{pos}</a>' for pos in POSITIONS if table.get(pos))
+    content = ("\n".join(sections) if sections else
+               '    <p class="lede">Expert consensus ranks are not available for this build, '
+               "so there is nothing to compare yet.</p>")
+    when = meta.get("consensusDate")
+    as_of = f", taken {datetime.fromisoformat(when):%B} {datetime.fromisoformat(when).day}," if when else ""
+    body = f"""  <section class="board">
+    <h1>Where the model disagrees with the experts</h1>
+    <p class="lede">The players Waiver ranks furthest from FantasyPros' expert consensus{as_of} for
+      {weeks}. These are the calls that set the model apart, and the ones most likely to be
+      wrong, so the <a href="/scorecard/">scorecard</a> grades them once the games are played.</p>
+    <nav class="board-nav" aria-label="Positions">{nav}</nav>
+{content}
+    <p class="footnote">Both ranks are by expected points per game for the rest of the season,
+      counting games a player is expected to miss. Waiver's rank is the model's own, before the
+      site blends in the consensus. What the model sees lists its strongest factors, in points
+      per game against a typical player at the position. The consensus is gathered once a week,
+      so news since then, such as an injury, can show up here as a disagreement. Players with an
+      injury designation are left off the side where Waiver ranks them higher, since the experts
+      may know more about when they will be back.</p>
+  </section>"""
+    return _shell(meta, "/model-vs-experts/", title, description, body, analytics,
+                  [_breadcrumbs(("Model vs experts", "/model-vs-experts/"))])
+
+
+def _pct(v) -> str:
+    return "—" if v is None else f"{v * 100:.1f}%"
+
+
+def _accuracy_table(first: str, rows: list[tuple[str, dict]]) -> str:
+    body = "\n".join(
+        f'      <tr><td>{e(label)}</td><td class="num">{_pct(r.get("site"))}</td>'
+        f'<td class="num">{_pct(r.get("consensus"))}</td><td class="num">{_pct(r.get("last4"))}</td></tr>'
+        for label, r in rows)
+    return f"""    <div class="board-table-wrap">
+    <table class="board-table">
+      <thead><tr><th scope="col">{first}</th><th scope="col" class="num">Waiver</th><th scope="col" class="num">Experts</th><th scope="col" class="num">Last four games</th></tr></thead>
+      <tbody>
+{body}
+      </tbody>
+    </table>
+    </div>"""
+
+
+def scorecard_page(meta: dict, card: dict | None, record: dict | None, slug: dict,
+                   analytics: str) -> str:
+    title = f"Scorecard: how Waiver's picks have done, {meta['season']} — Waiver"
+    description = ("Every week Waiver grades its own projections against real results and the "
+                   "expert consensus, losing weeks included, beside its tested 2024 and 2025 record.")
+    weeks = (card or {}).get("weeks", [])
+    average = lambda rows: {k: sum(r[k] for r in rows) / len(rows) for k in ("site", "consensus", "last4")}
+
+    if weeks:
+        graded_weeks = [w["overall"] for w in weeks if w["overall"]]
+        season_rows = ([(f"Week {w['week']}", w["overall"]) for w in weeks]
+                       + ([("Season so far", average(graded_weeks))] if graded_weeks else []))
+        season = (f'    <p class="lede">Each week\'s projections, graded on that week\'s games. A pair of players '
+                  f'counts when their scores were at least two points apart, and a missed game counts as zero.</p>\n'
+                  + _accuracy_table("Week", season_rows))
+    else:
+        season = (f'    <p class="lede">The first graded week arrives once week {meta["fromWeek"]} has been '
+                  "played. Every week after that is added automatically, including the weeks the experts "
+                  "do better.</p>")
+
+    calls = (card or {}).get("calls", {})
+    latest = weeks[-1]["calls"] if weeks else []
+    if latest:
+        rows = "\n".join(
+            f'      <tr><td>{_player_link({"id": c["id"], "name": c["name"]}, slug)}</td>'
+            f'<td class="num">{c["position"]}{c["modelRank"]}</td><td class="num">{c["position"]}{c["consensusRank"]}</td>'
+            f'<td class="num">{c["position"]}{c["finish"]} · {c["points"]:.1f}</td>'
+            f'<td><span class="pill {"good" if c["closer"] == "model" else "neutral"}">'
+            f'{ {"model": "Waiver", "experts": "Experts", "even": "Even"}[c["closer"]] }</span></td></tr>'
+            for c in latest)
+        tally = sum(calls.values())
+        graded = f"""    <p class="lede">Across the season so far, the player finished nearer Waiver's rank on
+      {calls.get("model", 0)} of {tally} of these calls, and nearer the experts' on {calls.get("experts", 0)}.
+      Week {weeks[-1]["week"]}'s:</p>
+    <div class="board-table-wrap">
+    <table class="board-table">
+      <thead><tr><th scope="col">Player</th><th scope="col" class="num">Waiver</th><th scope="col" class="num">Experts</th><th scope="col" class="num">Finished</th><th scope="col">Nearer</th></tr></thead>
+      <tbody>
+{rows}
+      </tbody>
+    </table>
+    </div>"""
+    else:
+        graded = ('    <p class="lede">Each week\'s biggest <a href="/model-vs-experts/">disagreements with the '
+                  "experts</a> are graded here once the games are played: did the player finish nearer "
+                  "Waiver's rank or the experts'?</p>")
+
+    if record:
+        avg = record["average"]
+        seasons = record["seasons"]
+        figures = "".join(f"<div><dt>{label}</dt><dd>{_pct(avg[k])}</dd></div>" for k, label in
+                          (("site", "Waiver"), ("consensus", "Expert consensus"), ("last4", "Last four games")))
+        by_pos = [(NAMES[pos].capitalize() + "s", average([s["byPosition"][pos] for s in seasons.values()]))
+                  for pos in POSITIONS if all(pos in s["byPosition"] for s in seasons.values())]
+        by_season = [(label, s["overall"]) for label, s in seasons.items()]
+        tested = f"""    <p class="lede">Before the site launched, the model was replayed over every week of the
+      {" and ".join(sorted(seasons))} seasons: retrained each week on only what was known at the time, then
+      asked to order each position by points per game over the next {record.get("horizon", 4)} games.</p>
+    <dl class="figures">{figures}</dl>
+{_accuracy_table("Season", by_season)}
+{_accuracy_table("Position", by_pos)}"""
+    else:
+        tested = '    <p class="lede">The tested record is not available in this build.</p>'
+
+    body = f"""  <section class="board">
+    <h1>How Waiver's picks have done</h1>
+    <p class="lede">Waiver grades itself every week, in public, against the average of expert
+      rankings and against going by recent points. Weeks it loses stay on the page.</p>
+    <h2>This season</h2>
+{season}
+    <h2>Biggest calls against the experts</h2>
+{graded}
+    <h2>Tested record</h2>
+{tested}
+    <p class="footnote">Accuracy is the share of pairs of players at the same position that were put in
+      the right order. Past accuracy is no guarantee of future results.</p>
+  </section>"""
+    return _shell(meta, "/scorecard/", title, description, body, analytics,
+                  [_breadcrumbs(("Scorecard", "/scorecard/"))])
+
+
+def _read_json(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+
+
 def sitemap(paths: list[str], lastmod: str) -> str:
     urls = "".join(f"  <url>\n    <loc>{SITE}{p}</loc>\n    <lastmod>{lastmod}</lastmod>\n"
                    f"    <changefreq>weekly</changefreq>\n  </url>\n" for p in paths)
@@ -465,6 +635,12 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     for pid, p in featured.items():
         page = player_page(meta, p, ppg, pos_rank[pid], ppg[pid] - levels[p["position"]], weights, analytics)
         pages[f"players/{slug[pid]}/index.html"] = page.replace("{slug}", slug[pid])
+    # Where the model parts with the experts, and how its calls have gone.
+    labels = meta.get("driverLabels", {}) | {"missed_games": "Missed games"}
+    pages["model-vs-experts/index.html"] = experts_page(meta, disagree.disagreements(payload), slug,
+                                                        labels, analytics)
+    pages["scorecard/index.html"] = scorecard_page(meta, _read_json(out / "data/scorecard.json"),
+                                                   _read_json(out / "data/track-record.json"), slug, analytics)
 
     # Last week's player pages go, so a player who drops out of the rankings
     # does not leave a stale page behind.
@@ -480,6 +656,7 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     # A waiver page from an earlier build stays listed if this week's adds
     # could not be fetched, so the sitemap never drops a live page.
     listed = (["/", "/waiver-wire/", "/rankings/"] + [f"/rankings/{p.lower()}/" for p in POSITIONS]
+              + ["/model-vs-experts/", "/scorecard/"]
               + [f"/players/{s}/" for s in sorted(slug.values())] + STATIC_PATHS)
     if not (out / "waiver-wire/index.html").exists():
         listed.remove("/waiver-wire/")

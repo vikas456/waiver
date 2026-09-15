@@ -56,6 +56,11 @@ FantasyPros' rest-of-season consensus, which knows things usage data cannot.
 The explanation shows that pull as its own bar, so you can see where the model
 and the experts disagree.
 
+**It grades itself in public.** Every build is archived, and once a week has
+been played the scorecard grades what the site showed against real results and
+the expert consensus, losing weeks included. The players the model ranks
+furthest from the experts are published each week, and graded the same way.
+
 **It compares across positions honestly.** Rankings are driven by value over
 replacement, computed from your league size. A tight end at 11 points can
 outrank a receiver at 12.5, because the tight end you would otherwise start is

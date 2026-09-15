@@ -32,11 +32,12 @@ import numpy as np
 import pandas as pd
 
 from . import market, project
-from .config import CURRENT_SEASON, POSITIONS, TRAIN_SEASONS
+from .config import (CURRENT_SEASON, FULL_FORM_FROM_WEEK, MARKET_WEIGHT,
+                     MARKET_WEIGHT_EARLY, POSITIONS, TRAIN_SEASONS)
 from .current_week import SEASON_OPENER
 from .scoring import actual_points, score_components
 
-METHODS = ["model", "blend", "blend50", "market", "last4", "season_avg", "volume"]
+METHODS = ["model", "blend", "blend50", "shipped", "market", "last4", "season_avg", "volume"]
 
 
 def pairwise_accuracy(pred: np.ndarray, actual: np.ndarray,
@@ -103,6 +104,10 @@ def run(data: dict, season: int, start_week: int = 1, end_week: int = 17,
                                       frame["market_rank"], market_weight)
         frame["blend50"] = market.blend(frame["model"], frame["position"],
                                         frame["market_rank"], 0.5)
+        # What the site ships: the consensus share config.py sets for this week.
+        frame["shipped"] = market.blend(
+            frame["model"], frame["position"], frame["market_rank"],
+            MARKET_WEIGHT_EARLY if week < FULL_FORM_FROM_WEEK else MARKET_WEIGHT)
         # Anyone the market leaves unranked sits below everyone it does rank.
         floor = frame.groupby("position")["market_rank"].transform("max").fillna(0) + 1
         frame["market"] = -frame["market_rank"].fillna(floor)

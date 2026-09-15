@@ -50,15 +50,21 @@ jobs:
       - name: Build projections
         run: python -m pipeline.project --source nflverse --from-week ${{ steps.week.outputs.value }}
 
-      # Rankings and waiver pages that search engines can index, from the
-      # projections just built.
-      - name: Build search pages
-        run: python -m pipeline.pages
-
+      # What the site showed for this week, kept for the scorecard to grade.
       - name: Archive this week's projections
         run: |
           mkdir -p web/data/history
           cp web/data/projections.json "web/data/history/week-${{ steps.week.outputs.value }}.json"
+
+      # Every archived week that has now been played is graded against the
+      # experts before the pages that show the scorecard are built.
+      - name: Grade past weeks
+        run: python -m pipeline.scorecard
+
+      # Rankings, waiver, scorecard and model-vs-experts pages that search
+      # engines can index, from the projections just built.
+      - name: Build search pages
+        run: python -m pipeline.pages
 
       - name: Commit
         run: |

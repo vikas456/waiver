@@ -1,0 +1,240 @@
+{
+ "horizon": 4,
+ "seasons": {
+  "2025": {
+   "overall": {
+    "site": 0.8618,
+    "consensus": 0.8219,
+    "last4": 0.7997
+   },
+   "byPosition": {
+    "QB": {
+     "site": 0.8071,
+     "consensus": 0.7961,
+     "last4": 0.7119
+    },
+    "RB": {
+     "site": 0.8948,
+     "consensus": 0.8567,
+     "last4": 0.8529
+    },
+    "TE": {
+     "site": 0.8785,
+     "consensus": 0.8217,
+     "last4": 0.8136
+    },
+    "WR": {
+     "site": 0.8667,
+     "consensus": 0.8129,
+     "last4": 0.8203
+    }
+   },
+   "byWeek": [
+    {
+     "week": 1,
+     "site": 0.8662,
+     "consensus": 0.8663,
+     "last4": 0.7802
+    },
+    {
+     "week": 2,
+     "site": 0.8518,
+     "consensus": 0.8458,
+     "last4": 0.7634
+    },
+    {
+     "week": 3,
+     "site": 0.8616,
+     "consensus": 0.8244,
+     "last4": 0.7762
+    },
+    {
+     "week": 4,
+     "site": 0.8528,
+     "consensus": 0.8047,
+     "last4": 0.7834
+    },
+    {
+     "week": 5,
+     "site": 0.8744,
+     "consensus": 0.8106,
+     "last4": 0.8112
+    },
+    {
+     "week": 6,
+     "site": 0.8877,
+     "consensus": 0.8429,
+     "last4": 0.8114
+    },
+    {
+     "week": 7,
+     "site": 0.8812,
+     "consensus": 0.8259,
+     "last4": 0.8011
+    },
+    {
+     "week": 8,
+     "site": 0.8717,
+     "consensus": 0.8277,
+     "last4": 0.8245
+    },
+    {
+     "week": 9,
+     "site": 0.8492,
+     "consensus": 0.8153,
+     "last4": 0.8004
+    },
+    {
+     "week": 10,
+     "site": 0.8485,
+     "consensus": 0.8041,
+     "last4": 0.7989
+    },
+    {
+     "week": 11,
+     "site": 0.846,
+     "consensus": 0.8011,
+     "last4": 0.7999
+    },
+    {
+     "week": 12,
+     "site": 0.8611,
+     "consensus": 0.8093,
+     "last4": 0.8283
+    },
+    {
+     "week": 13,
+     "site": 0.8587,
+     "consensus": 0.8189,
+     "last4": 0.8128
+    },
+    {
+     "week": 14,
+     "site": 0.8538,
+     "consensus": 0.8093,
+     "last4": 0.8038
+    }
+   ]
+  },
+  "2024": {
+   "overall": {
+    "site": 0.8543,
+    "consensus": 0.8347,
+    "last4": 0.8056
+   },
+   "byPosition": {
+    "QB": {
+     "site": 0.8133,
+     "consensus": 0.8007,
+     "last4": 0.7501
+    },
+    "RB": {
+     "site": 0.8833,
+     "consensus": 0.8564,
+     "last4": 0.8406
+    },
+    "TE": {
+     "site": 0.8559,
+     "consensus": 0.842,
+     "last4": 0.8169
+    },
+    "WR": {
+     "site": 0.8647,
+     "consensus": 0.8398,
+     "last4": 0.8149
+    }
+   },
+   "byWeek": [
+    {
+     "week": 1,
+     "site": 0.84,
+     "consensus": 0.8385,
+     "last4": 0.7983
+    },
+    {
+     "week": 2,
+     "site": 0.8241,
+     "consensus": 0.8242,
+     "last4": 0.7774
+    },
+    {
+     "week": 3,
+     "site": 0.8351,
+     "consensus": 0.789,
+     "last4": 0.7686
+    },
+    {
+     "week": 4,
+     "site": 0.8399,
+     "consensus": 0.806,
+     "last4": 0.7844
+    },
+    {
+     "week": 5,
+     "site": 0.859,
+     "consensus": 0.8317,
+     "last4": 0.8044
+    },
+    {
+     "week": 6,
+     "site": 0.8584,
+     "consensus": 0.8317,
+     "last4": 0.8152
+    },
+    {
+     "week": 7,
+     "site": 0.8664,
+     "consensus": 0.839,
+     "last4": 0.821
+    },
+    {
+     "week": 8,
+     "site": 0.8512,
+     "consensus": 0.8386,
+     "last4": 0.7999
+    },
+    {
+     "week": 9,
+     "site": 0.8494,
+     "consensus": 0.8292,
+     "last4": 0.812
+    },
+    {
+     "week": 10,
+     "site": 0.8462,
+     "consensus": 0.8378,
+     "last4": 0.8054
+    },
+    {
+     "week": 11,
+     "site": 0.8684,
+     "consensus": 0.8554,
+     "last4": 0.8113
+    },
+    {
+     "week": 12,
+     "site": 0.8712,
+     "consensus": 0.857,
+     "last4": 0.8256
+    },
+    {
+     "week": 13,
+     "site": 0.8793,
+     "consensus": 0.8635,
+     "last4": 0.8275
+    },
+    {
+     "week": 14,
+     "site": 0.8715,
+     "consensus": 0.8446,
+     "last4": 0.8278
+    }
+   ]
+  }
+ },
+ "average": {
+  "site": 0.858,
+  "consensus": 0.8283,
+  "last4": 0.8026
+ }
+}

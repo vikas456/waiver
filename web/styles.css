@@ -175,6 +175,8 @@ main {
 a.wordmark { text-decoration: none; }
 .board { display: flex; flex-direction: column; gap: 1.125rem; padding-top: 0.75rem; }
 .board h1 { text-wrap: balance; }
+.board h2 { font-size: 1.25rem; font-weight: 500; letter-spacing: -0.01em; margin: 1.25rem 0 0; scroll-margin-top: 1rem; }
+.board h3 { font-size: 0.9375rem; color: var(--ink-2); margin: 0.25rem 0 0; }
 .board a { color: var(--pine); }
 .board-nav { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .board-nav a {

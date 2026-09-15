@@ -45,6 +45,14 @@ def ranks_before(cutoff) -> pd.Series:
     return rk.drop_duplicates("gsis_id").set_index("gsis_id")["rank"].astype(float)
 
 
+def scraped_before(cutoff) -> pd.Timestamp | None:
+    """When the consensus that ranks_before(cutoff) returns was taken. It is
+    scraped weekly, so news since then is not in it."""
+    rk = _history()
+    rk = rk[rk["scrape_date"] < pd.Timestamp(cutoff)]
+    return None if rk.empty else rk["scrape_date"].max()
+
+
 def blend(model_ppg: pd.Series, position: pd.Series, rank: pd.Series,
           weight: float) -> pd.Series:
     """Shrink each projection toward what the consensus rank implies.

@@ -153,7 +153,9 @@ pipeline/
   market.py       FantasyPros consensus ranks, and blending with them
   availability.py depth charts, injury reports and reserve lists, per week
   sleeper.py      Sleeper's injury statuses and trending adds
-  pages.py        ranking and waiver pages for search engines
+  disagree.py     where the model and the expert consensus rank a player furthest apart
+  scorecard.py    grades each archived week against real results and the experts
+  pages.py        ranking, waiver, scorecard and model-vs-experts pages
 web/
   index.html, styles.css, app.js, data/projections.json
 ```

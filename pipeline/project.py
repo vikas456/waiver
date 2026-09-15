@@ -257,6 +257,10 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
     avail = (availability.load(season)
              if source == "nflverse" and season == CURRENT_SEASON else None)
     ranks = market.ranks_before(pd.Timestamp.now()) if source == "nflverse" else None
+    # The experts' view as published, players on reserve included, for the
+    # site to set beside the model's and for the scorecard to grade later.
+    consensus = ranks.copy() if ranks is not None else pd.Series(dtype=float)
+    consensus_date = market.scraped_before(pd.Timestamp.now()) if source == "nflverse" else None
     if ranks is not None and avail:
         # A consensus rank already prices in the games a player on reserve will
         # miss, and his chance of playing counts them again. He keeps the
@@ -337,6 +341,8 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
             }
             if injury:
                 players[pid]["injury"] = {"status": injury["label"], "detail": injury["detail"]}
+            if pid in consensus.index and pd.notna(consensus[pid]):
+                players[pid]["consensusRank"] = int(consensus[pid])
         mean = float(max(ppr_pts.iloc[i], 0.0))
         # Two decimal places, and no zero components (the site reads a missing
         # stat as zero), keep the file every visitor downloads a quarter smaller.
@@ -360,6 +366,7 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
         "meta": {
             "season": season,
             "source": source,
+            "consensusDate": consensus_date.date().isoformat() if consensus_date is not None else None,
             "fromWeek": from_week,
             "throughWeek": through,
             "earlySeason": early,
