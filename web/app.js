@@ -672,12 +672,10 @@ function initials(name) {
   return (name[0] + lastName(name)[0]).replace(/[^A-Za-z]/g, '').toUpperCase();
 }
 
-// A photo that fails to load falls back to initials rather than a broken image.
+// Initials for everyone: free photos cover too few players to look even, and
+// the league's own headshots are not licensed for a site with ads.
 function avatar(p, size = '') {
-  const letters = initials(p.name);
-  if (!p.headshot) return `<span class="avatar ${size}">${letters}</span>`;
-  return `<span class="avatar ${size}" data-initials="${letters}"><img src="${esc(p.headshot)}" alt=""
-    loading="lazy" onerror="this.parentElement.textContent = this.parentElement.dataset.initials"></span>`;
+  return `<span class="avatar ${size}" aria-hidden="true">${initials(p.name)}</span>`;
 }
 
 function renderSuggestions(results) {

@@ -195,6 +195,16 @@ def slugs(players: list[dict]) -> dict[str, str]:
     return out
 
 
+SUFFIX = re.compile(r"^(jr|sr|ii|iii|iv|v)\.?$", re.I)
+
+
+def _initials(name: str) -> str:
+    """Mirrors initials and lastName in web/app.js: A.J. Brown is AB."""
+    bits = [b for b in name.split(" ") if not SUFFIX.match(b)]
+    last = bits[-1] if bits else name
+    return re.sub(r"[^A-Za-z]", "", name[0] + last[0]).upper()
+
+
 def _player_link(p: dict, slug: dict) -> str:
     return f'<a href="/players/{slug[p["id"]]}/">{e(p["name"])}</a>' if p["id"] in slug else e(p["name"])
 
@@ -344,10 +354,9 @@ def player_page(meta: dict, p: dict, ppg: dict, rank: int, vor: float, weights: 
     schedule = "\n".join(week_row(w) for w in p["weeks"])
     byes = p.get("byeWeeks") or []
     bye_note = f'<p class="footnote">Bye in week {", ".join(map(str, byes))}.</p>' if byes else ""
-    photo = (f'<img src="{e(p["headshot"])}" alt="{e(name)}" width="64" height="64">'
-             if p.get("headshot") else "")
+    badge = f'<span class="avatar" aria-hidden="true">{e(_initials(name))}</span>'
     body = f"""  <article class="board">
-    <div class="player-head">{photo}
+    <div class="player-head">{badge}
       <div><h1>{e(name)} rest-of-season outlook</h1>
       <p class="meta">{e(pos)} · {e(p["team"])} · {e(pos)}{rank} in the rankings</p></div>
     </div>
