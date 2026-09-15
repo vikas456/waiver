@@ -80,7 +80,22 @@ function weeksInRange(player, from, to) {
 
 // Chance of playing in one week, which the depth chart and injury report can
 // lower. Older data files carry a single figure per player.
-const playChance = (player, wk) => wk.p ?? player.playProb;
+const baseChance = (player, wk) => wk.p ?? player.playProb;
+
+// A single week is a start-or-sit decision: raw points for that week, rather
+// than value over replacement for a stretch of them, with a floor and a
+// ceiling beside the projection.
+const startSit = () => state.fromWeek === state.toWeek;
+
+// Lineups are set after the injury report, so for a single week a player with
+// no designation is taken to play, unless the depth chart says he will not.
+// The general chance of an absence nobody has reported yet only matters over
+// a stretch of weeks.
+function playChance(player, wk) {
+  const p = baseChance(player, wk);
+  if (!startSit() || player.injury) return p;
+  return Math.min(1, p / (player.playProb || 1));
+}
 
 // Fast analytic mean, used to rank the whole player pool so replacement level
 // has something to be measured against. Simulation is reserved for the few
@@ -100,8 +115,13 @@ function simulate(player, from, to, draws = 3000) {
   const weights = state.data.meta.scoringFormats[state.format];
   const weeks = weeksInRange(player, from, to);
   if (!weeks.length) {
-    return { ppg: 0, p10: 0, p90: 0, total: 0, games: 0, weeks: 0 };
+    return { ppg: 0, p10: 0, p90: 0, total: 0, games: 0, weeks: 0, draws: null };
   }
+  // For one week the floor and ceiling describe the game if he plays; his
+  // chance of playing is shown beside them and counted in the projection.
+  // The draws are kept, unsorted, so two players can be set against each other.
+  const single = from === to;
+  if (single) draws = 6000;
 
   const means = weeks.map(wk =>
     Math.max(scoreLine(wk.c, weights, player.position, state.tePremium), 0.05));
@@ -118,7 +138,7 @@ function simulate(player, from, to, draws = 3000) {
   for (let d = 0; d < draws; d++) {
     let total = 0, played = 0;
     for (let i = 0; i < weeks.length; i++) {
-      if (Math.random() >= playChance(player, weeks[i])) continue;
+      if (!single && Math.random() >= playChance(player, weeks[i])) continue;
       const shape = (means[i] / sds[i]) ** 2;
       const scale = (sds[i] * sds[i]) / means[i];
       total += gamma(shape, scale);
@@ -137,14 +157,34 @@ function simulate(player, from, to, draws = 3000) {
   let totalSum = 0;
   for (let d = 0; d < draws; d++) totalSum += totals[d];
 
+  // Tested on single games in 2024 and 2025: a player projected for under 7
+  // PPR points when he plays scores next to nothing in more than one game in
+  // ten, which the gamma curve misses, so his floor is zero. From 7 points up,
+  // about one game in ten fell below the floor and one in ten above the ceiling.
+  const dud = single && pprMeans[0] < 7;
   return {
     ppg: sorted.reduce((a, b) => a + b, 0) / draws,
-    p10: at(0.10),
+    p10: dud ? 0 : at(0.10),
     p90: at(0.90),
     total: totalSum / draws,
     games: gameSum / draws,
     weeks: weeks.length,
+    draws: single ? perGame : null,
+    chance: single ? playChance(player, weeks[0]) : null,
   };
+}
+
+// How often one player outscores another in a single week: both play and he
+// scores more, or only he plays. A tie, such as both sitting out, counts half.
+function beats(a, b) {
+  if (!a.draws) return b.draws ? 0 : 0.5;
+  if (!b.draws) return 1;
+  let more = 0;
+  const n = Math.min(a.draws.length, b.draws.length);
+  for (let i = 0; i < n; i++) more += a.draws[i] > b.draws[i] ? 1 : 0;
+  const both = more / n;
+  const [pa, pb] = [a.chance, b.chance];
+  return pa * pb * both + pa * (1 - pb) + 0.5 * (1 - pa) * (1 - pb);
 }
 
 // Draws are random, so without this every player's numbers would shift a
@@ -212,7 +252,10 @@ function versus(row, other) {
 /* -- Ranking ------------------------------------------------------------- */
 
 function rank(players, from, to) {
-  const levels = replacementLevels(from, to);
+  // A start-or-sit call is about points in one lineup slot, so for a single
+  // week nobody is measured against a replacement player.
+  const single = from === to;
+  const levels = single ? {} : replacementLevels(from, to);
   const pprWeights = state.data.meta.scoringFormats.ppr;
   const fmtWeights = state.data.meta.scoringFormats[state.format];
 
@@ -239,7 +282,8 @@ function rank(players, from, to) {
     const factors = { ...drivers, missed_games: expected - ifPlays,
       position: ifPlays - driven - replacement };
 
-    return { player: p, ...sim, ppg: expected, replacement, vorp: expected - replacement, factors };
+    return { player: p, ...sim, ppg: expected, ifPlays, opp: weeks.length ? weeks[0].opp : null,
+      replacement, vorp: expected - replacement, factors };
   });
 
   // Two players can share a surname, and "against Moreau and Moreau" is the
@@ -305,6 +349,9 @@ const DRIVER_NAMES = {
   sample: 'Sample size', availability: 'Sample size',
 };
 
+// Ends a sentence on a name without doubling the full stop of a Jr. or Sr.
+const stop = name => (name.endsWith('.') ? name : `${name}.`);
+
 const ORDINAL = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
 
 // Real names carry suffixes, and "Jr. ranks first" is not a sentence.
@@ -313,14 +360,25 @@ function lastName(name) {
   return bits[bits.length - 1] || name;
 }
 
+// For a single week, the position factor is the gap between what the two
+// positions typically score rather than scarcity, and the schedule is one
+// opponent.
+const WEEK_PHRASES = {
+  position: ['plays a higher-scoring position', 'plays a lower-scoring position'],
+  schedule: ['has the easier matchup this week', 'has the harder matchup this week'],
+};
+
 // Missed games are described by why he is expected to miss them.
 function missedPhrase(row, positive) {
-  if (positive) return 'is expected to be on the field for more of these games';
+  if (positive) {
+    return startSit() ? 'is more likely to play this week'
+      : 'is expected to be on the field for more of these games';
+  }
   const inj = row.player.injury;
   if (inj && (inj.status === 'IR' || inj.status === 'PUP')) {
     return `is on ${inj.status === 'IR' ? 'injured reserve' : 'the PUP list'} and expected to miss games`;
   }
-  if (inj) return `is listed as ${inj.status.toLowerCase()} and may miss time`;
+  if (inj) return `is listed as ${inj.status.toLowerCase()} and may ${startSit() ? 'sit out this week' : 'miss time'}`;
   const weeks = weeksInRange(row.player, state.fromWeek, state.toWeek);
   const chance = weeks.reduce((a, w) => a + playChance(row.player, w), 0) / (weeks.length || 1);
   return chance < 0.3 ? 'is not expected to start, so he rarely plays'
@@ -329,6 +387,7 @@ function missedPhrase(row, positive) {
 
 function phraseFor(group, row, positive) {
   if (group === 'missed_games') return missedPhrase(row, positive);
+  if (startSit() && WEEK_PHRASES[group]) return WEEK_PHRASES[group][positive ? 0 : 1];
   const pos = row.player.position;
   const pair = (group === 'opportunity' && OPPORTUNITY_PHRASES[pos])
     || (group === 'route_role' && ROLE_PHRASES[pos])
@@ -361,11 +420,12 @@ function reasoning(row, position) {
   // With no game in the range his projection is zero, and no factor the model
   // weighs is the reason; say the real one.
   const idle = p => !weeksInRange(p, state.fromWeek, state.toWeek).length;
-  if (idle(row.player)) return `${name} has no game in this range.`;
+  const range = startSit() ? `in week ${state.fromWeek}` : 'in this range';
+  if (idle(row.player)) return `${name} has no game ${range}.`;
   // Only the top pick is explained against a runner-up who might sit out;
   // anyone else trails the top pick, so the factors below say why.
   if (position === 1 && idle(other.player)) {
-    return `${name} ranks first, ahead of ${them}, who has no game in this range.`;
+    return `${name} ranks first, ahead of ${them}, who has no game ${range}.`;
   }
   const { up, down } = splitDrivers(row.rel);
   const parts = [];
@@ -418,6 +478,7 @@ function reasoning(row, position) {
 // The answer leads, in one sentence. How firmly it is worded follows the size
 // of the gap, so a near tie never reads as a sure thing.
 function headline(rows) {
+  if (startSit()) return startHeadline(rows);
   const [top, second] = rows;
   const gap = top.ppg - second.ppg;
   const vorpGap = top.vorp - second.vorp;
@@ -426,7 +487,7 @@ function headline(rows) {
   if (vorpGap < 0.35) {
     answer = {
       tone: 'warn', label: 'Close call',
-      title: `${top.player.name}, narrowly over ${second.player.name}.`,
+      title: `${top.player.name}, narrowly over ${stop(second.player.name)}`,
       sub: `They finish ${vorpGap.toFixed(1)} points of value apart. ` +
         'Take the one whose role you believe in.',
     };
@@ -434,18 +495,62 @@ function headline(rows) {
     answer = {
       tone: vorpGap < 1 ? 'neutral' : 'good',
       label: vorpGap < 1 ? 'Slight edge' : 'Clear pick',
-      title: `Pick up ${top.player.name}.`,
+      title: `Pick up ${stop(top.player.name)}`,
       // Fewer points but still first is the case value over replacement exists for.
       sub: gap < 0
         ? `He projects ${Math.abs(gap).toFixed(1)} fewer points a game than ${second.player.name}, ` +
           `but ${top.player.position} is the thinner position in your league, so he replaces a worse player.`
-        : `About ${gap.toFixed(1)} more points a game than ${second.player.name}.`,
+        : `About ${gap.toFixed(1)} more points a game than ${stop(second.player.name)}`,
     };
   }
   if (top.p90 - top.p10 > 10) {
     answer.sub += ' His range is wide, so take him if you need upside and the ' +
       'steadier option if you are protecting a lead.';
   }
+  return answer;
+}
+
+// For one week: who to start, how often he outscores the next best, and when
+// the floor or the ceiling argues for someone else.
+function startHeadline(rows) {
+  const [top, second] = rows;
+  const week = `week ${state.fromWeek}`;
+  if (!top.draws) {
+    return { tone: 'warn', label: 'No game', title: `None of these players has a game in ${week}.`,
+      sub: 'Pick another week, or add players who are playing.' };
+  }
+  let answer;
+  if (!second.draws) {
+    answer = { tone: 'good', label: 'Clear start', title: `Start ${stop(top.player.name)}`,
+      sub: `${second.player.name} has no game in ${week}.` };
+  } else {
+    const odds = beats(top, second);
+    const often = `${lastName(top.player.name)} outscores ${second.player.name} in ` +
+      `${Math.round(odds * 100)}% of simulated ${week} games`;
+    answer = odds < 0.55
+      ? { tone: 'warn', label: 'Close call', title: `${top.player.name}, narrowly over ${stop(second.player.name)}`,
+          sub: `${often}, close to a coin flip.` }
+      : { tone: odds < 0.65 ? 'neutral' : 'good', label: odds < 0.65 ? 'Slight edge' : 'Clear start',
+          title: `Start ${stop(top.player.name)}`,
+          sub: `${often}, and projects ${(top.ppg - second.ppg).toFixed(1)} more points.` };
+  }
+  // The pick is the one expected to score most. A manager who needs a big
+  // week, or only needs a steady one, may want the player at either end.
+  const playing = rows.filter(r => r.draws);
+  const ceiling = playing.reduce((a, r) => (r.p90 > a.p90 ? r : a));
+  const floor = playing.reduce((a, r) => (r.p10 > a.p10 ? r : a));
+  const extra = [];
+  if (ceiling !== top && ceiling.p90 - top.p90 >= 1) {
+    extra.push(`If you need a big week, ${ceiling.player.name} has the higher ceiling.`);
+  }
+  if (floor !== top && floor.p10 - top.p10 >= 1) {
+    extra.push(`If you only need a steady week, ${floor.player.name} has the higher floor.`);
+  }
+  const inj = top.player.injury;
+  if (inj && top.chance < 1) {
+    extra.push(`${lastName(top.player.name)} is listed as ${inj.status.toLowerCase()}, so check he is active before kickoff.`);
+  }
+  if (extra.length) answer.sub += ` ${extra.join(' ')}`;
   return answer;
 }
 
@@ -475,6 +580,7 @@ const signed = v => `${v >= 0 ? '+' : '\u2212'}${Math.abs(v).toFixed(1)}`;
 function confidencePill(row) {
   const spread = row.p90 - row.p10;
   if (row.player.stats.gamesPlayed < 4) return { cls: 'warn', text: 'Thin sample' };
+  if (startSit()) return null;
   if (spread > 11) return { cls: 'warn', text: 'Volatile' };
   if (spread < 6.5) return { cls: 'good', text: 'Steady' };
   return null;
@@ -495,7 +601,7 @@ function renderDrivers(rel) {
       ? `<i style="left:50%;width:${width}%;background:var(--up)"></i>`
       : `<i style="right:50%;width:${width}%;background:var(--down)"></i>`;
     return `<div class="driver">
-      <span>${esc(DRIVER_NAMES[g] || labels[g] || g)}</span>
+      <span>${esc(g === 'position' && startSit() ? 'Position' : DRIVER_NAMES[g] || labels[g] || g)}</span>
       <div class="track">${bar}</div>
       <b style="color:var(${v > 0 ? '--up' : '--down'})">${signed(v)}</b>
     </div>`;
@@ -539,6 +645,8 @@ function renderStatLine(row) {
   const s = p.stats;
   const pill = confidencePill(row);
   const items = pill ? [`<span class="pill ${pill.cls}">${pill.text}</span>`] : [];
+  for (const mark of row.marks || []) items.push(`<span class="pill neutral">${mark}</span>`);
+  if (startSit() && row.draws) items.push(`Floor ${row.p10.toFixed(1)}`, `Ceiling ${row.p90.toFixed(1)}`);
   items.push(`Snap share ${pct(s.snapShare)}`);
   if (p.position === 'RB') {
     items.push(`Carry share ${pct(s.carryShare)}`, `Goal-line share ${pct(s.glShare)}`);
@@ -553,8 +661,27 @@ function renderStatLine(row) {
 
 function renderRanking(rows) {
   const compared = rows.length > 1;
+  const single = startSit();
+  // One scale for every bar, so ranges can be compared down the list.
+  const scale = Math.max(...rows.map(r => r.p90), 1);
+  const playing = rows.filter(r => r.draws);
+  if (single && playing.length > 1) {
+    const best = key => playing.reduce((a, r) => (r[key] > a[key] ? r : a));
+    rows.forEach(r => { r.marks = []; });
+    if (best('p10').p10 > 0) best('p10').marks.push('Highest floor');
+    best('p90').marks.push('Highest ceiling');
+  }
   $('#ranking').innerHTML = rows.map((row, i) => {
     const p = row.player;
+    const tail = single
+      ? (row.opp ? `vs ${esc(row.opp)}` : 'No game') +
+        (row.draws && row.chance < 0.995 ? ` \u00b7 ${pct(row.chance)} to play` : '')
+      : `<span class="${row.vorp >= 0 ? 'up' : 'down'}">${signed(row.vorp)}</span> over replacement`;
+    const bar = single && row.draws
+      ? `<span class="spread" role="img" aria-label="Floor ${row.p10.toFixed(1)}, ceiling ${row.p90.toFixed(1)} points">` +
+        `<i style="left:${(row.p10 / scale) * 100}%;width:${((row.p90 - row.p10) / scale) * 100}%"></i>` +
+        `<b style="left:${Math.min(row.ifPlays / scale, 1) * 100}%"></b></span>`
+      : '';
     return `<li>
       <details class="row"${i === 0 ? ' open' : ''}>
         <summary class="row-head">
@@ -564,7 +691,8 @@ function renderRanking(rows) {
             <strong>${esc(p.name)}</strong>
             <span class="row-meta">${esc(p.position)} \u00b7 ${esc(p.team)} \u00b7
               ${p.injury ? `<span class="down" title="${esc(p.injury.status)}">${esc(SHORT_STATUS[p.injury.status] || p.injury.status)}</span> \u00b7` : ''}
-              <span class="${row.vorp >= 0 ? 'up' : 'down'}">${signed(row.vorp)}</span> over replacement</span>
+              ${tail}</span>
+            ${bar}
           </span>
           <span class="row-pts">
             <b>${row.ppg.toFixed(1)}</b>
@@ -610,9 +738,13 @@ function render() {
   renderRanking(rows);
   const span = state.fromWeek === state.toWeek
     ? `week ${state.fromWeek}` : `weeks ${state.fromWeek}\u2013${state.toWeek}`;
-  $('#footnote').textContent = `Expected points per game over ${span}, counting the ` +
-    'chance he misses a game. Value over replacement compares ' +
-    'each player with the best free agent at his position in a league your size.';
+  $('#footnote').textContent = startSit()
+    ? `Projected points in ${span}. A player on the injury report counts his chance of sitting ` +
+      'out; anyone else is taken to play. Floor and ceiling are for a game he plays: tested on the ' +
+      '2024 and 2025 seasons, about one game in ten fell below the floor and one in ten went above the ceiling.'
+    : `Expected points per game over ${span}, counting the ` +
+      'chance he misses a game. Value over replacement compares ' +
+      'each player with the best free agent at his position in a league your size.';
   if (n < 2) return;
 
   const answer = headline(rows);
@@ -1079,7 +1211,7 @@ function openSheet(kind) {
     const opts = [
       ['rest', 'Rest of season', `Weeks ${meta.fromWeek}\u2013${last}`],
       ['playoffs', 'Fantasy playoffs', `Weeks 15\u2013${Math.min(17, last)}`],
-      ['week', 'This week only', `Week ${meta.fromWeek}`],
+      ['week', 'This week: start or sit', `Week ${meta.fromWeek}, with a floor and a ceiling`],
     ].map(([key, label, sub]) =>
       option(state.preset === key, label, sub, `data-preset="${key}"`)).join('');
 
@@ -1164,6 +1296,16 @@ function setPreset(key) {
 }
 
 function syncSettings() {
+  const single = startSit();
+  for (const b of document.querySelectorAll('.mode')) {
+    b.setAttribute('aria-pressed', String((b.dataset.mode === 'week') === single));
+  }
+  $('#introTitle').textContent = single ? 'Who should you start?' : 'Who should you pick up?';
+  $('#introLede').textContent = single
+    ? `Add two or more of your players. Waiver projects week ${state.fromWeek} for each, with a ` +
+      'floor and a ceiling, and how often each outscores the other.'
+    : 'Add two or more fantasy football free agents. Waiver ranks them on the usage and efficiency ' +
+      'that predicts the rest of the season, not the points they already scored.';
   $('#weekValue').textContent = rangeLabel();
   $('#formatValue').textContent = (state.format === 'league' ? 'League scoring'
     : state.data.meta.scoringFormats[state.format].label)
@@ -1224,6 +1366,12 @@ function wire() {
   $('#leagueSetting').addEventListener('click', () => openSheet('league'));
   $('#sleeperSetting').addEventListener('click', () => openSheet('sleeper'));
   $('#share').addEventListener('click', share);
+  $('.modes').addEventListener('click', e => {
+    const btn = e.target.closest('[data-mode]');
+    if (!btn) return;
+    setPreset(btn.dataset.mode);
+    render();
+  });
 
   // A pickup's Compare button puts him beside the player he would replace, so
   // the explanation below says exactly why the move is worth making.

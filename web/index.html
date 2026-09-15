@@ -46,10 +46,15 @@
 <main id="main">
   <section class="panel" id="panel">
     <div class="intro" id="intro">
-      <h1>Who should you pick up?</h1>
-      <p class="lede">Add two or more fantasy football free agents. Waiver ranks them
+      <h1 id="introTitle">Who should you pick up?</h1>
+      <p class="lede" id="introLede">Add two or more fantasy football free agents. Waiver ranks them
         on the usage and efficiency that predicts the rest of the season, not the
         points they already scored.</p>
+    </div>
+
+    <div class="modes" role="group" aria-label="What to decide">
+      <button class="mode" type="button" data-mode="rest" aria-pressed="true">Waiver pickups</button>
+      <button class="mode" type="button" data-mode="week" aria-pressed="false">Start or sit</button>
     </div>
 
     <div class="search" role="search">
@@ -117,6 +122,7 @@
 <footer class="site-footer" aria-label="More from Waiver">
   <a href="/">Compare players</a>
   <a href="/waiver-wire/">Waiver pickups</a>
+  <a href="/ir-stash/">IR stash</a>
   <a href="/rankings/">Rankings</a>
   <a href="/rankings/qb/">QB</a>
   <a href="/rankings/rb/">RB</a>

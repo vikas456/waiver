@@ -193,6 +193,8 @@ a.wordmark { text-decoration: none; }
 }
 .board-table td { padding: 0.625rem 0.5rem; border-bottom: 1px solid var(--line); }
 .board-table .num { text-align: right; }
+.board-table .sub { display: block; margin-top: 0.125rem; font-size: 0.75rem; color: var(--ink-3); }
+.stash-table a { white-space: nowrap; }
 .board-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
 .board-list li { display: flex; flex-direction: column; gap: 0.125rem; padding: 0.875rem 0; border-bottom: 1px solid var(--line); }
 .board-list span { font-size: 0.8125rem; color: var(--ink-3); }
@@ -288,6 +290,30 @@ a.wordmark { text-decoration: none; }
 
 .statline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.875rem; font-size: 0.75rem; color: var(--ink-3); }
 .reason { font-size: 0.875rem; line-height: 1.7; color: var(--ink-2); }
+
+/* Mode switch ------------------------------------------------------------*/
+.modes {
+  display: inline-flex; align-self: flex-start; gap: 0.125rem; padding: 0.1875rem;
+  border: 1px solid var(--line); border-radius: 1.25rem;
+}
+.mode {
+  min-height: 2rem; padding: 0 0.875rem; border: 0; border-radius: 1rem; background: none;
+  font: inherit; font-size: 0.8125rem; color: var(--ink-3); cursor: pointer;
+}
+.mode:hover { color: var(--ink); }
+.mode[aria-pressed="true"] { background: var(--pine-soft); color: var(--pine); font-weight: 500; }
+.mode:focus-visible { outline: 2px solid var(--pine); outline-offset: 1px; }
+
+/* Floor to ceiling for one week, on one scale for every player compared. */
+.spread {
+  position: relative; display: block; max-width: 15rem; height: 0.3125rem; margin-top: 0.4375rem;
+  background: var(--line); border-radius: 3px;
+}
+.spread i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--pine); opacity: 0.5; }
+.spread b {
+  position: absolute; top: -0.1875rem; width: 2px; height: 0.6875rem; margin-left: -1px;
+  border-radius: 1px; background: var(--ink);
+}
 /* Sleeper league ---------------------------------------------------------*/
 .chip-league #sleeperValue { display: inline-block; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
 .beta {

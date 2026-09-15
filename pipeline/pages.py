@@ -35,6 +35,7 @@ ANALYTICS = re.compile(r"<!-- Cloudflare Web Analytics -->.*?<!-- End Cloudflare
 FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
   <a href="/">Compare players</a>
   <a href="/waiver-wire/">Waiver pickups</a>
+  <a href="/ir-stash/">IR stash</a>
   <a href="/rankings/">Rankings</a>
   <a href="/rankings/qb/">QB</a>
   <a href="/rankings/rb/">RB</a>
@@ -420,6 +421,127 @@ def waiver_page(meta: dict, rows: list[tuple[dict, int]], ppg: dict, levels: dic
                    _breadcrumbs(("Waiver pickups", "/waiver-wire/"))])
 
 
+# Lists a stash can hold a player through. Anyone else missing time is week to
+# week, which the injury report covers.
+STASH_STATUSES = {"IR": "IR", "PUP": "PUP"}
+# The fantasy playoffs start here in most leagues, which is when a stash pays off.
+PLAYOFF_WEEK = 15
+
+
+def stash_rows(players: list[dict], weights: dict, levels: dict) -> list[dict]:
+    """Players on reserve worth holding, best first.
+
+    A week's chance of playing is his chance of being back from reserve times
+    the chance any healthy player plays, so dividing by the second leaves his
+    return odds. His value is what he adds over a replacement-level free agent
+    in the games he is back for; a week in which he would not beat one is worth
+    nothing, since he would sit.
+    """
+    rows = []
+    for p in players:
+        inj = p.get("injury") or {}
+        if inj.get("status") not in STASH_STATUSES or not p["weeks"]:
+            continue
+        base = p["playProb"] or 1.0
+        repl = levels[p["position"]]
+        back = [(w["w"], min(1.0, w.get("p", base) / base)) for w in p["weeks"]]
+        value = sum(w.get("p", base) * max(0.0, sum(v * weights.get(k, 0) for k, v in w["c"].items()) - repl)
+                    for w in p["weeks"])
+        by = min(PLAYOFF_WEEK, p["weeks"][-1]["w"])
+        rows.append({
+            "player": p, "value": value, "whenBack": when_playing(p, weights), "gap": when_playing(p, weights) - repl,
+            "earliest": next((wk for wk, c in back if c > 0), None),
+            "byWeek": by, "backBy": max((c for wk, c in back if wk <= by), default=0.0),
+        })
+    return sorted(rows, key=lambda r: r["value"], reverse=True)
+
+
+# Close enough to a free agent's output, in points per game when back, that
+# an injury ahead of him on the depth chart could make him worth a stash.
+WATCH_GAP = 2.0
+
+
+def split_stash(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Players worth a stash now, and ones a little short of it. A player
+    with little chance of playing even when healthy, such as a backup
+    quarterback, is neither."""
+    worth = [r for r in rows if r["value"] >= 0.05]
+    watch = sorted((r for r in rows if r["value"] < 0.05 and r["gap"] >= -WATCH_GAP and r["backBy"] >= 0.2),
+                   key=lambda r: r["whenBack"], reverse=True)
+    return worth, watch
+
+
+def _stash_who(p: dict, slug: dict) -> str:
+    """Name, list and injury in one cell, so the table stays narrow on a phone."""
+    detail = (p["injury"].get("detail") or "").strip()
+    return (f'{_player_link(p, slug)} <span class="tag">{e(STASH_STATUSES[p["injury"]["status"]])}</span>'
+            + (f'<span class="sub">{e(detail)}</span>' if detail else ""))
+
+
+def stash_page(meta: dict, rows: list[dict], levels: dict, slug: dict, analytics: str) -> str:
+    title = f"IR stash rankings for week {meta['fromWeek']}, {meta['season']} — Waiver"
+    description = ("Fantasy football players on injured reserve worth stashing, ranked by what they "
+                   "should add once back, with their odds of returning. Updated weekly.")
+
+    def row(i: int, r: dict) -> str:
+        p = r["player"]
+        earliest = f"Week {r['earliest']}" if r["earliest"] else "—"
+        return (f'      <tr><td class="num">{i}</td><td>{_stash_who(p, slug)}</td>'
+                f'<td>{e(p["position"])}</td><td class="num">{earliest}</td>'
+                f'<td class="num">{round(r["backBy"] * 100)}%</td><td class="num">{r["whenBack"]:.1f}</td>'
+                f'<td class="num">{r["value"]:.1f}</td></tr>')
+
+    worth, watch = split_stash(rows)
+    by = rows[0]["byWeek"] if rows else PLAYOFF_WEEK
+    table = "\n".join(row(i, r) for i, r in enumerate(worth, start=1))
+    content = f"""    <div class="board-table-wrap">
+    <table class="board-table stash-table">
+      <thead><tr><th scope="col" class="num">Rank</th><th scope="col">Player</th><th scope="col">Pos</th><th scope="col" class="num">Earliest return</th><th scope="col" class="num">Back by week {by}</th><th scope="col" class="num">Points per game when back</th><th scope="col" class="num">Stash value</th></tr></thead>
+      <tbody>
+{table}
+      </tbody>
+    </table>
+    </div>""" if worth else ('    <p class="lede">No player on injured reserve or the PUP list projects to beat '
+                             "a free agent once he is back, so there is no one worth stashing this week.</p>")
+    if watch:
+        def watch_row(r: dict) -> str:
+            p = r["player"]
+            earliest = f"Week {r['earliest']}" if r["earliest"] else "—"
+            return (f'      <tr><td>{_stash_who(p, slug)}</td><td>{e(p["position"])}</td>'
+                    f'<td class="num">{earliest}</td><td class="num">{round(r["backBy"] * 100)}%</td>'
+                    f'<td class="num">{r["whenBack"]:.1f}</td><td class="num">{_signed(r["gap"])}</td></tr>')
+        content += f"""
+    <h2>Worth watching</h2>
+    <p class="lede">Close to worth a stash, but projected just short of the best free agent at his
+      position once he is back. An injury ahead of one of them on the depth chart could change that.</p>
+    <div class="board-table-wrap">
+    <table class="board-table stash-table">
+      <thead><tr><th scope="col">Player</th><th scope="col">Pos</th><th scope="col" class="num">Earliest return</th><th scope="col" class="num">Back by week {by}</th><th scope="col" class="num">Points per game when back</th><th scope="col" class="num">Against a free agent</th></tr></thead>
+      <tbody>
+{chr(10).join(watch_row(r) for r in watch)}
+      </tbody>
+    </table>
+    </div>"""
+    body = f"""  <section class="board">
+    <h1>IR stash rankings for week {meta['fromWeek']}</h1>
+    <p class="lede">Players on injured reserve or the PUP list worth holding onto, ranked by what
+      each should add once he is back. If your league has IR slots, holding one of these players
+      costs you no bench spot.</p>
+{content}
+    <p class="footnote">Stash value is the points a player should add over the best free agent at
+      his position in a 12-team PPR league, from week {meta['fromWeek']} to {meta['throughWeek']},
+      counting each game by his chance of being back for it. A game he would not beat that free agent
+      in counts as zero. Return odds come from every move to injured reserve during weeks 1–10 of
+      2022–2025: no one came back before the four-game minimum was up, and about half never
+      returned that season. Hamstring, ankle and knee injuries have their own odds. Reported
+      timelines, such as "out four to six weeks", are not used yet, so a player with a known short
+      absence may be back sooner than shown here.</p>
+  </section>"""
+    return _shell(meta, "/ir-stash/", title, description, body, analytics,
+                  [_item_list(title, [r["player"] for r in worth], slug),
+                   _breadcrumbs(("IR stash", "/ir-stash/"))])
+
+
 def _reason_text(p: dict, weights: dict, higher: bool, labels: dict) -> str:
     # A quarterback runs no routes; for him that group comes down to snaps.
     name = lambda g: "Snap share" if (g == "route_role" and p["position"] == "QB") else labels.get(g, g)
@@ -632,6 +754,12 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
         pages[f"rankings/{pos.lower()}/index.html"] = position_page(meta, pos, by_pos[pos], ppg, slug, analytics)
     if trending:
         pages["waiver-wire/index.html"] = waiver_page(meta, trending, ppg, levels, slug, analytics)
+    stash = stash_rows(players, weights, levels)
+    # A stash is searched by name as much as anyone, so each has a page too.
+    for r in itertools.chain(*split_stash(stash)):
+        featured.setdefault(r["player"]["id"], r["player"])
+    slug = slugs(list(featured.values()))
+    pages["ir-stash/index.html"] = stash_page(meta, stash, levels, slug, analytics)
     for pid, p in featured.items():
         page = player_page(meta, p, ppg, pos_rank[pid], ppg[pid] - levels[p["position"]], weights, analytics)
         pages[f"players/{slug[pid]}/index.html"] = page.replace("{slug}", slug[pid])
@@ -656,7 +784,7 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     # A waiver page from an earlier build stays listed if this week's adds
     # could not be fetched, so the sitemap never drops a live page.
     listed = (["/", "/waiver-wire/", "/rankings/"] + [f"/rankings/{p.lower()}/" for p in POSITIONS]
-              + ["/model-vs-experts/", "/scorecard/"]
+              + ["/ir-stash/", "/model-vs-experts/", "/scorecard/"]
               + [f"/players/{s}/" for s in sorted(slug.values())] + STATIC_PATHS)
     if not (out / "waiver-wire/index.html").exists():
         listed.remove("/waiver-wire/")
