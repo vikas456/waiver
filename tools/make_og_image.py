@@ -12,7 +12,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 WIDTH, HEIGHT = 1200, 630
-PAPER, INK, INK_2, PINE = "#0e1211", "#e6ebe8", "#a2aca7", "#6cc3a0"
+PAPER, INK, INK_2, INK_3, PINE = "#0e1211", "#e6ebe8", "#a2aca7", "#7b8581", "#6cc3a0"
 OUT = Path(__file__).resolve().parent.parent / "web" / "og-image.png"
 
 # The site's face is Archivo, which is not installed locally; these are close
@@ -48,7 +48,11 @@ def main() -> None:
     scale, x0, y0 = 2.6, 80, 70
     mark = [(7, 10), (11.5, 22), (16, 13), (20.5, 22), (25, 10)]
     draw.line([(x0 + x * scale, y0 + y * scale) for x, y in mark], fill=PINE, width=9, joint="curve")
-    draw.text((x0 + 88, y0 + 20), "Waiver", font=font(BOLD, 44), fill=PINE)
+    # The wordmark as the site sets it: "W" and "ver" recede, "ai" in pine.
+    x, name = x0 + 88, font(BOLD, 44)
+    for part, colour in (("W", INK_3), ("ai", PINE), ("ver", INK_3)):
+        draw.text((x, y0 + 20), part, font=name, fill=colour)
+        x += draw.textlength(part, font=name)
 
     headline = font(BOLD, 80)
     draw.text((80, 230), "Who should you pick up?", font=headline, fill=INK)

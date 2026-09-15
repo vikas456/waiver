@@ -147,7 +147,7 @@ def _shell(meta: dict, path: str, title: str, description: str, body: str,
 <body>
 
 <header class="masthead">
-  <a class="wordmark" href="/">Waiver</a>
+  <a class="wordmark" href="/" aria-label="Waiver">W<span class="ai">ai</span>ver</a>
   <span class="meta">{e(stamp)}</span>
 </header>
 

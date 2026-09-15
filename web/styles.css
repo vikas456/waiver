@@ -60,12 +60,15 @@ p { margin: 0; }
   justify-content: space-between;
   gap: 1rem;
 }
+/* "W" and "ver" recede so the "ai" in the middle carries the name. */
 .wordmark {
   font-weight: 600;
   font-size: 0.9375rem;
   letter-spacing: 0.01em;
-  color: var(--pine);
+  color: var(--ink-3);
 }
+.wordmark .ai { color: var(--pine); }
+a.wordmark:hover { color: var(--ink-2); }
 .meta { font-size: 0.75rem; color: var(--ink-3); text-align: right; }
 .warn-stamp { color: var(--amber); background: var(--amber-soft); padding: 0.1875rem 0.5rem; border-radius: 6px; }
 
