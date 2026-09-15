@@ -227,8 +227,7 @@ function rank(players, from, to) {
     const replacement = levels[p.position] || 0;
     const vorp = sim.ppg - replacement;
 
-    const byes = (p.byeWeeks || []).filter(w => w >= from && w <= to);
-    return { player: p, ...sim, replacement, vorp, drivers: driverTotals(p, from, to, scale), byes };
+    return { player: p, ...sim, replacement, vorp, drivers: driverTotals(p, from, to, scale) };
   });
 
   const rel = relativeDrivers(rows.map(r => r.drivers));
@@ -352,12 +351,6 @@ function reasoning(row, position, others) {
   if (s.roleChange === 1) {
     parts.push('The model also detected a change in his role this season and ' +
       'weighted the weeks since more heavily than the ones before.');
-  }
-  if (row.byes.length) {
-    const word = row.byes.length > 1 ? 'weeks' : 'week';
-    parts.push(`He is on bye in ${word} ${listOf(row.byes)}, which the per-game ` +
-      'figure above already excludes, so his total over the range is lower than ' +
-      'the average suggests.');
   }
   if (others.length) {
     parts.push(`Against ${listOf(others)}, that is the difference.`);
@@ -560,7 +553,7 @@ function render() {
   const span = state.fromWeek === state.toWeek
     ? `week ${state.fromWeek}` : `weeks ${state.fromWeek}\u2013${state.toWeek}`;
   $('#footnote').textContent = `Expected points per game over ${span}, counting the ` +
-    'chance he misses a game. Byes are left out. Value over replacement compares ' +
+    'chance he misses a game. Value over replacement compares ' +
     'each player with the best free agent at his position in a league your size.';
   if (n < 2) return;
 
