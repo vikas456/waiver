@@ -28,11 +28,12 @@ from .features import feature_columns
 
 MODEL_DIR = Path("models")
 
-# Depth 4 rather than 5: shallower trees ordered players better on 2025 and on
-# the held-out 2024, on their own and on top of the Poisson objective.
+# Depth 3 rather than the original 5: shallower trees ordered players better
+# on 2025 and on the held-out 2024, on top of the Poisson objective. Each step
+# down from 5 helped on both seasons; depth 2 was no better than 3.
 COMPONENT_PARAMS = {
     "objective": "count:poisson",
-    "max_depth": 4,
+    "max_depth": 3,
     "eta": 0.04,
     "subsample": 0.8,
     "colsample_bytree": 0.7,
