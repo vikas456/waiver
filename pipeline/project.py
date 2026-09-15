@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import availability, explain, features, market, simulate, train
+from . import availability, explain, features, market, simulate, sleeper, train
 from .config import (CURRENT_SEASON, FULL_FORM_FROM_WEEK, MARKET_WEIGHT,
                      MARKET_WEIGHT_EARLY, POSITIONS, ROLLING_WINDOWS,
                      SCORING_FORMATS, STABILISATION_GAMES, STAT_COMPONENTS,
@@ -361,6 +361,18 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
     for pid, p in players.items():
         weeks_present = {w["w"] for w in p["weeks"]}
         p["byeWeeks"] = [w for w in range(from_week, through + 1) if w not in weeks_present]
+
+    # Sleeper's id for each player, so the site can match a Sleeper league's
+    # rosters. A player without one is never shown as available in a league,
+    # since the site cannot tell whether someone has him.
+    if source == "nflverse":
+        try:
+            to_sleeper = {gsis: sid for sid, gsis in sleeper.to_gsis().items()}
+            for pid, p in players.items():
+                if pid in to_sleeper:
+                    p["sleeperId"] = to_sleeper[pid]
+        except Exception as err:
+            print(f"  Sleeper ids unavailable ({type(err).__name__}); league mode will not match rosters")
 
     return {
         "meta": {

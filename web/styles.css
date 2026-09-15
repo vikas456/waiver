@@ -288,6 +288,34 @@ a.wordmark { text-decoration: none; }
 
 .statline { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.875rem; font-size: 0.75rem; color: var(--ink-3); }
 .reason { font-size: 0.875rem; line-height: 1.7; color: var(--ink-2); }
+/* Sleeper league ---------------------------------------------------------*/
+.chip-league span { display: inline-block; max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.league { display: flex; flex-direction: column; gap: 0.875rem; margin-top: 1.5rem; }
+.league-head { display: flex; flex-direction: column; gap: 0.125rem; }
+.league-head h2 { font-size: 1.25rem; font-weight: 500; margin: 0; text-wrap: balance; }
+.league-head span, .league-note { font-size: 0.8125rem; color: var(--ink-3); margin: 0; }
+.picks { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--line); }
+.pick { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 0.375rem 0.875rem; padding: 0.75rem 0; border-bottom: 1px solid var(--line); }
+.pick-who { display: flex; align-items: center; gap: 0.625rem; min-width: 0; }
+.pick-who div { display: flex; flex-direction: column; min-width: 0; }
+.pick-who strong { font-weight: 500; font-size: 0.9375rem; }
+.pick-who small, .pick-gain small { font-size: 0.75rem; color: var(--ink-3); }
+.pick-gain { display: flex; flex-direction: column; align-items: flex-end; }
+.pick-gain b { color: var(--up); font-weight: 500; font-size: 1.0625rem; }
+.pick-bid { grid-column: 1 / -1; margin: 0; font-size: 0.75rem; color: var(--ink-2); }
+.league-more summary { cursor: pointer; font-size: 0.875rem; color: var(--ink-2); }
+.league-more p { margin: 0.5rem 0 0; font-size: 0.875rem; }
+.league-more .label { display: inline-block; width: 2.25rem; margin: 0; }
+.league-more small { color: var(--ink-3); }
+.connect { display: flex; flex-direction: column; gap: 0.625rem; }
+.connect p { margin: 0; }
+.connect input { font: inherit; font-size: 0.9375rem; padding: 0.625rem 0.75rem; border: 1px solid var(--line-2); border-radius: 8px; background: var(--card); color: var(--ink); }
+.connect .hint { font-size: 0.75rem; }
+@media (max-width: 34rem) {
+  .pick { grid-template-columns: minmax(0, 1fr) auto; }
+  .pick .chip { grid-column: 1 / -1; justify-self: start; }
+}
+
 /* Ad ---------------------------------------------------------------------*/
 .ad-slot {
   display: flex; flex-direction: column; gap: 0.5rem;

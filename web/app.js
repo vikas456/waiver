@@ -24,6 +24,11 @@ const state = {
   format: 'ppr',
   leagueSize: 12,
   tePremium: 0,
+  // Replacement depth per team at each position; a connected league's lineup
+  // moves it (see leagueReplacement).
+  replacement: { ...REPLACEMENT_PER_TEAM },
+  // A connected Sleeper league, or null (see applyLeague).
+  league: null,
 };
 
 /* -- Scoring ------------------------------------------------------------- */
@@ -161,7 +166,7 @@ function replacementLevels(from, to) {
   const levels = {};
   for (const [pos, values] of Object.entries(byPos)) {
     values.sort((a, b) => b - a);
-    const rank = Math.max(1, Math.round((REPLACEMENT_PER_TEAM[pos] || 2) * state.leagueSize));
+    const rank = Math.max(1, Math.round((state.replacement[pos] || 2) * state.leagueSize));
     // Average a small band around the cut line so one outlier cannot move the
     // baseline for an entire position.
     const lo = Math.max(0, rank - 3);
@@ -592,8 +597,10 @@ function rangeLabel() {
 function render() {
   const n = state.picked.length;
   syncUrl();
-  $('#intro').hidden = n > 0;
-  $('#why').hidden = n > 0;
+  // With a league connected, its pickups take the introduction's place.
+  $('#intro').hidden = n > 0 || !!state.league;
+  $('#why').hidden = n > 0 || !!state.league;
+  renderLeague();
   $('#hint').hidden = n !== 1;
   $('#answer').hidden = n < 2;
   $('#footnote').hidden = n === 0;
@@ -627,7 +634,11 @@ function comparisonParams() {
   const q = new URLSearchParams();
   if (state.picked.length) q.set('p', state.picked.map(p => p.id).join(','));
   if (state.preset !== 'rest') q.set('w', `${state.fromWeek}-${state.toWeek}`);
-  if (state.format !== 'ppr') q.set('s', state.format);
+  // A league's own scoring cannot travel in a link, so the nearest standard
+  // format does.
+  const format = state.format !== 'league' ? state.format
+    : ({ 1: 'ppr', 0.5: 'half_ppr', 0: 'standard' }[state.data.meta.scoringFormats.league.reception] || 'ppr');
+  if (format !== 'ppr') q.set('s', format);
   if (state.tePremium) q.set('te', String(state.tePremium));
   if (state.leagueSize !== 12) q.set('l', String(state.leagueSize));
   return q;
@@ -722,13 +733,21 @@ function avatar(p, size = '') {
   return `<span class="avatar ${size}" aria-hidden="true">${initials(p.name)}</span>`;
 }
 
+// In a connected league, whether a player can be picked up at all.
+function leagueStatus(p) {
+  const L = state.league;
+  if (!L || !p.sleeperId) return '';
+  if (L.mine.has(p.sleeperId)) return ' \u00b7 on your team';
+  return L.rostered.has(p.sleeperId) ? ' \u00b7 on a team' : ' \u00b7 free agent';
+}
+
 function renderSuggestions(results) {
   const box = $('#suggestions');
   if (!results.length) { box.hidden = true; box.innerHTML = ''; return; }
   box.innerHTML = results.map((p, i) =>
     `<li role="option" data-add="${p.id}" ${i === 0 ? 'aria-selected="true"' : ''}>
       <span class="who">${avatar(p)}<span>${esc(p.name)}</span></span>
-      <span class="tag">${esc(p.position)} \u00b7 ${esc(p.team)}</span></li>`).join('');
+      <span class="tag">${esc(p.position)} \u00b7 ${esc(p.team)}${leagueStatus(p)}</span></li>`).join('');
   box.hidden = false;
   $('#search').setAttribute('aria-expanded', 'true');
 }
@@ -756,6 +775,285 @@ function showError(message) {
   const el = $('#entryError');
   el.textContent = message || '';
   el.hidden = !message;
+}
+
+/* -- Your Sleeper league ------------------------------------------------- */
+
+// Sleeper's public API answers browsers directly, so a league loads with no
+// sign-in and nothing passes through Waiver. Only the league and team chosen
+// are remembered, in this browser.
+const SLEEPER = 'https://api.sleeper.app/v1';
+const LEAGUE_KEY = 'waiver.league';
+
+// How each Sleeper lineup slot is usually filled, for working out how deep
+// replacement level sits at each position in a particular league.
+const SLOT_SHARE = {
+  QB: { QB: 1 }, RB: { RB: 1 }, WR: { WR: 1 }, TE: { TE: 1 },
+  FLEX: { RB: 0.45, WR: 0.45, TE: 0.1 }, WRRB_FLEX: { RB: 0.5, WR: 0.5 },
+  REC_FLEX: { WR: 0.8, TE: 0.2 }, SUPER_FLEX: { QB: 0.9, RB: 0.05, WR: 0.05 },
+};
+const DEFAULT_LINEUP = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
+
+async function sleeperGet(path) {
+  const res = await fetch(`${SLEEPER}${path}`);
+  if (!res.ok) throw new Error(`Sleeper did not answer (${res.status}). Try again in a moment.`);
+  return res.json();
+}
+
+function slotStarters(slots) {
+  const out = { QB: 0, RB: 0, WR: 0, TE: 0 };
+  for (const slot of slots) {
+    for (const [pos, share] of Object.entries(SLOT_SHARE[slot] || {})) out[pos] += share;
+  }
+  return out;
+}
+
+// Replacement moves by however many more or fewer starters a league plays at
+// a position than the usual one-quarterback lineup the defaults assume, so a
+// superflex league makes quarterbacks scarce.
+function leagueReplacement(slots) {
+  const mine = slotStarters(slots);
+  const usual = slotStarters(DEFAULT_LINEUP);
+  return Object.fromEntries(Object.entries(REPLACEMENT_PER_TEAM)
+    .map(([pos, per]) => [pos, Math.max(0.5, per + mine[pos] - usual[pos])]));
+}
+
+// Sleeper's scoring keys, mapped onto the stat lines the model predicts.
+// Bonuses the model does not predict, such as points for first downs, are
+// left out.
+function leagueWeights(s) {
+  const n = (key, fallback) => (typeof s[key] === 'number' ? s[key] : fallback);
+  return {
+    pass_yd: n('pass_yd', 0.04), pass_td: n('pass_td', 4), interception: n('pass_int', -2),
+    rush_yd: n('rush_yd', 0.1), rush_td: n('rush_td', 6), reception: n('rec', 0),
+    rec_yd: n('rec_yd', 0.1), rec_td: n('rec_td', 6), fumble_lost: n('fum_lost', -2),
+    two_point: n('rec_2pt', n('rush_2pt', 2)),
+  };
+}
+
+function receptionLabel(ppr) {
+  return ppr === 1 ? 'full PPR' : ppr === 0.5 ? 'half PPR' : ppr === 0 ? 'no PPR' : `${ppr} per reception`;
+}
+
+function applyLeague(league, rosters, users, rosterId) {
+  const mine = rosters.find(r => r.roster_id === rosterId);
+  const owner = users.find(u => u.user_id === mine?.owner_id);
+  // Players in reserve and taxi slots do not take a roster spot, so they are
+  // never offered as the player to let go.
+  const parked = new Set([...(mine?.reserve || []), ...(mine?.taxi || [])]);
+  const weights = leagueWeights(league.scoring_settings || {});
+  const budget = league.settings?.waiver_budget || 0;
+  state.league = {
+    id: league.league_id,
+    name: league.name || 'Your league',
+    teams: league.total_rosters || rosters.length,
+    rosterId,
+    team: owner?.metadata?.team_name || owner?.display_name || `Team ${rosterId}`,
+    rostered: new Set(rosters.flatMap(r => r.players || [])),
+    mine: new Set((mine?.players || []).filter(id => !parked.has(id))),
+    slots: league.roster_positions || [],
+    faab: budget ? { left: Math.max(0, budget - (mine?.settings?.waiver_budget_used || 0)) } : null,
+  };
+  state.data.meta.scoringFormats.league = { ...weights, label: `League scoring, ${receptionLabel(weights.reception)}` };
+  state.format = 'league';
+  state.tePremium = league.scoring_settings?.bonus_rec_te || 0;
+  state.leagueSize = state.league.teams;
+  state.replacement = leagueReplacement(state.league.slots);
+  simCache.clear();
+  try { localStorage.setItem(LEAGUE_KEY, JSON.stringify({ id: league.league_id, rosterId })); } catch { /* private mode */ }
+  syncSettings();
+  render();
+}
+
+function disconnectLeague() {
+  state.league = null;
+  delete state.data.meta.scoringFormats.league;
+  state.format = 'ppr';
+  state.tePremium = 0;
+  state.leagueSize = 12;
+  state.replacement = { ...REPLACEMENT_PER_TEAM };
+  simCache.clear();
+  try { localStorage.removeItem(LEAGUE_KEY); } catch { /* private mode */ }
+  syncSettings();
+  render();
+}
+
+function connectMessage(html) {
+  const box = $('#connectResult');
+  if (box) box.innerHTML = html;
+  else showError(html.replace(/<[^>]+>/g, ''));
+}
+
+// Loads a league and settles on a team: the one given, the one the user owns,
+// or, failing both, asks which is theirs.
+async function chooseTeam(leagueId, userId, rosterId = null) {
+  const [league, rosters, users] = await Promise.all([
+    sleeperGet(`/league/${encodeURIComponent(leagueId)}`),
+    sleeperGet(`/league/${encodeURIComponent(leagueId)}/rosters`),
+    sleeperGet(`/league/${encodeURIComponent(leagueId)}/users`),
+  ]);
+  if (!league || !Array.isArray(rosters)) {
+    connectMessage('<p class="error">Sleeper has no league with that ID.</p>');
+    return;
+  }
+  const owns = r => r.owner_id === userId || (r.co_owners || []).includes(userId);
+  const mine = rosterId != null ? rosters.find(r => r.roster_id === rosterId) : rosters.find(owns);
+  if (mine) {
+    applyLeague(league, rosters, users || [], mine.roster_id);
+    closeSheet();
+    return;
+  }
+  const teamName = r => {
+    const u = (users || []).find(x => x.user_id === r.owner_id);
+    return u?.metadata?.team_name || u?.display_name || `Team ${r.roster_id}`;
+  };
+  connectMessage('<p class="label">Which team is yours?</p>' + rosters.map(r =>
+    option(false, esc(teamName(r)), '',
+      `data-sleeper-league="${esc(leagueId)}" data-sleeper-roster="${r.roster_id}"`)).join(''));
+}
+
+async function findLeagues(input) {
+  const text = input.trim();
+  if (!text) { connectMessage('<p class="error">Enter a Sleeper username or league ID.</p>'); return; }
+  connectMessage('<p class="hint">Looking that up on Sleeper…</p>');
+  try {
+    // League IDs are long numbers; anything else is taken as a username.
+    if (/^\d{12,}$/.test(text)) { await chooseTeam(text, null); return; }
+    const user = await sleeperGet(`/user/${encodeURIComponent(text)}`);
+    if (!user) {
+      connectMessage('<p class="error">Sleeper has no user by that name. Check the spelling, or paste a league ID instead.</p>');
+      return;
+    }
+    const season = state.data.meta.season;
+    const leagues = (await sleeperGet(`/user/${user.user_id}/leagues/nfl/${season}`)) || [];
+    if (!leagues.length) {
+      connectMessage(`<p class="error">${esc(user.display_name)} has no ${season} leagues on Sleeper.</p>`);
+      return;
+    }
+    if (leagues.length === 1) { await chooseTeam(leagues[0].league_id, user.user_id); return; }
+    connectMessage('<p class="label">Pick a league</p>' + leagues.map(l =>
+      option(false, esc(l.name), `${l.total_rosters} teams`,
+        `data-sleeper-league="${esc(l.league_id)}" data-sleeper-user="${esc(user.user_id)}"`)).join(''));
+  } catch (err) {
+    connectMessage(`<p class="error">${esc(err.message)}</p>`);
+  }
+}
+
+async function reloadLeague(saved) {
+  try { await chooseTeam(saved.id, null, saved.rosterId); } catch (err) {
+    showError(`Your Sleeper league could not be loaded: ${err.message}`);
+  }
+}
+
+// A rule of thumb rather than a model: a share of the budget that is left,
+// rising with how much a player adds over the one he would replace.
+function faabBid(gain, left) {
+  if (!left) return '$0';
+  const [lo, hi] = gain >= 3 ? [0.2, 0.3] : gain >= 2 ? [0.1, 0.2] : gain >= 1 ? [0.05, 0.1] : [0.01, 0.04];
+  const a = Math.max(1, Math.round(left * lo));
+  const b = Math.max(a, Math.round(left * hi));
+  return a === b ? `$${a}` : `$${a}–${b}`;
+}
+
+// Who can fill each lineup slot, in the order slots are filled: dedicated
+// slots first, then the flexible ones from the narrowest to the widest.
+const SLOT_ELIGIBLE = {
+  QB: ['QB'], RB: ['RB'], WR: ['WR'], TE: ['TE'],
+  REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'], FLEX: ['RB', 'WR', 'TE'],
+  SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'],
+};
+
+// Expected points per game from the best starting lineup a roster can field
+// in these slots. Depth beyond the lineup is worth nothing here, which is
+// what stops a third quarterback looking like an upgrade.
+function lineupPoints(roster, slots) {
+  const pool = [...roster].sort((a, b) => b.pts - a.pts);
+  const used = new Set();
+  let total = 0;
+  for (const [slot, eligible] of Object.entries(SLOT_ELIGIBLE)) {
+    for (let i = slots.filter(s => s === slot).length; i > 0; i--) {
+      const pick = pool.find(m => !used.has(m) && eligible.includes(m.p.position));
+      if (pick) { used.add(pick); total += pick.pts; }
+    }
+  }
+  return total;
+}
+
+// The roster moves worth making, best first. Each is judged by how much it
+// lifts the best starting lineup, and made on the roster the moves before it
+// leave behind, so every pickup replaces a different player and none empties
+// a slot the lineup needs.
+function leagueAdvice() {
+  const L = state.league;
+  const levels = replacementLevels(state.fromWeek, state.toWeek);
+  const entry = p => {
+    const pts = meanPpg(p, state.fromWeek, state.toWeek);
+    return { p, pts, v: pts - (levels[p.position] || 0) };
+  };
+  const bySleeper = new Map(state.data.players.filter(p => p.sleeperId).map(p => [p.sleeperId, p]));
+  let roster = [...L.mine].map(id => bySleeper.get(id)).filter(Boolean).map(entry);
+  const start = roster.length;
+  const free = state.data.players.filter(p => p.sleeperId && !L.rostered.has(p.sleeperId))
+    .map(entry).sort((a, b) => b.v - a.v);
+  const slots = L.slots.length ? L.slots : DEFAULT_LINEUP;
+  const pickups = [];
+  const taken = new Set();
+  for (let k = 0; k < 5; k++) {
+    const base = lineupPoints(roster, slots);
+    let best = null;
+    for (const add of free.slice(0, 80)) {
+      if (taken.has(add)) continue;
+      for (const drop of roster) {
+        if (drop.added) continue;
+        const gain = lineupPoints(roster.filter(m => m !== drop).concat(add), slots) - base;
+        // Between equal gains, the weaker player is the one to let go.
+        if (!best || gain > best.gain + 1e-9
+            || (Math.abs(gain - best.gain) <= 1e-9 && add === best.add && drop.v < best.drop.v)) {
+          best = { add, drop, gain };
+        }
+      }
+    }
+    if (!best || best.gain < 0.3) break;
+    pickups.push(best);
+    taken.add(best.add);
+    roster = roster.filter(m => m !== best.drop).concat({ ...best.add, added: true });
+  }
+  return { pickups, free, roster: start };
+}
+
+function renderLeague() {
+  const box = $('#league');
+  const L = state.league;
+  box.hidden = !L || state.picked.length > 0;
+  if (box.hidden) return;
+  const { pickups, free, roster } = leagueAdvice();
+  const rows = pickups.map(({ add, drop, gain }) => `<li class="pick">
+      <div class="pick-who">${avatar(add.p)}<div><strong>${esc(add.p.name)}</strong>
+        <small>${esc(add.p.position)} · ${esc(add.p.team)}${add.p.injury
+          ? ` · ${esc(SHORT_STATUS[add.p.injury.status] || add.p.injury.status)}` : ''}</small></div></div>
+      <div class="pick-gain"><b>+${gain.toFixed(1)}</b><small>replacing ${esc(drop.p.name)}</small></div>
+      <button class="chip" type="button" data-compare="${esc(add.p.id)},${esc(drop.p.id)}">Compare</button>
+      ${L.faab ? `<p class="pick-bid">FAAB: about ${faabBid(gain, L.faab.left)} of your $${L.faab.left}</p>` : ''}
+    </li>`).join('');
+  const best = ['QB', 'RB', 'WR', 'TE'].map(pos => {
+    const top = free.filter(f => f.p.position === pos).slice(0, 3);
+    return `<p><span class="label">${pos}</span>${top.length
+      ? top.map(f => `${esc(f.p.name)} <small>${signed(f.v)}</small>`).join(' · ')
+      : 'No one worth a spot'}</p>`;
+  }).join('');
+  const empty = roster
+    ? 'No free agent in your league lifts your starting lineup by enough to be worth a move right now.'
+    : 'Your roster has no players the model projects yet, so there is nothing to compare against.';
+  box.innerHTML = `<div class="league-head">
+      <h2 id="leagueTitle">Top pickups for ${esc(L.team)}</h2>
+      <span>${esc(L.name)} · ${L.teams} teams · ${esc(state.data.meta.scoringFormats.league.label.replace('League scoring, ', ''))} · ${rangeLabel().toLowerCase()}</span>
+    </div>
+    ${rows ? `<ol class="picks">${rows}</ol>` : `<p class="league-note">${empty}</p>`}
+    <p class="league-note">Each pickup is paired with the player on your roster he would replace,
+      and the gain is how much the move lifts your best starting lineup, in points per game over
+      ${rangeLabel().toLowerCase()}. Moves are listed in the order to make them.${L.faab
+        ? ' FAAB amounts are a rule of thumb scaled by that gain, not a model prediction.' : ''}</p>
+    <details class="league-more"><summary>Best free agents at each position</summary>${best}</details>`;
 }
 
 /* -- Settings sheet ------------------------------------------------------ */
@@ -819,13 +1117,35 @@ function openSheet(kind) {
     title = 'League size';
     body.innerHTML = [8, 10, 12, 14, 16].map(n =>
       option(state.leagueSize === n, `${n} teams`,
-        `Replacement is about the ${Math.round(2.5 * n)}th running back`,
+        `Replacement is about the ${Math.round(state.replacement.RB * n)}th running back`,
         `data-league="${n}"`)).join('');
+  }
+
+  if (kind === 'sleeper') {
+    const L = state.league;
+    title = L ? 'Your Sleeper league' : 'Connect a Sleeper league';
+    body.innerHTML = L
+      ? `<div class="connect">
+          <p><strong>${esc(L.name)}</strong><br><small>${esc(L.team)} · ${L.teams} teams</small></p>
+          <p class="hint">Scoring, league size and lineup come from Sleeper, and rosters were
+            loaded when this page opened.</p>
+          <button class="opt" type="button" data-refresh="1">Reload rosters from Sleeper</button>
+          <button class="opt" type="button" data-disconnect="1">Disconnect this league</button>
+        </div>`
+      : `<form class="connect" id="connectForm">
+          <label class="label" for="sleeperInput">Sleeper username or league ID</label>
+          <input id="sleeperInput" type="text" autocomplete="off" spellcheck="false"
+                 autocapitalize="off" placeholder="Your Sleeper username">
+          <button class="primary" type="submit" style="margin-top:0">Find my leagues</button>
+          <p class="hint">Your browser reads the league straight from Sleeper. Nothing goes to
+            Waiver, and there is nothing to sign in to.</p>
+          <div id="connectResult"></div>
+        </form>`;
   }
 
   $('#sheetTitle').textContent = title;
   $('#scrim').hidden = false;
-  $('#sheetClose').focus();
+  ($('#sleeperInput') || $('#sheetClose')).focus();
 }
 
 function closeSheet() { $('#scrim').hidden = true; }
@@ -841,9 +1161,11 @@ function setPreset(key) {
 
 function syncSettings() {
   $('#weekValue').textContent = rangeLabel();
-  $('#formatValue').textContent = state.data.meta.scoringFormats[state.format].label
+  $('#formatValue').textContent = (state.format === 'league' ? 'League scoring'
+    : state.data.meta.scoringFormats[state.format].label)
     + (state.tePremium ? ` +${state.tePremium} TE` : '');
   $('#leagueValue').textContent = `${state.leagueSize} teams`;
+  $('#sleeperValue').textContent = state.league ? state.league.name : 'Connect Sleeper';
 }
 
 /* -- Wiring -------------------------------------------------------------- */
@@ -896,7 +1218,25 @@ function wire() {
   $('#weekSetting').addEventListener('click', () => openSheet('weeks'));
   $('#formatSetting').addEventListener('click', () => openSheet('format'));
   $('#leagueSetting').addEventListener('click', () => openSheet('league'));
+  $('#sleeperSetting').addEventListener('click', () => openSheet('sleeper'));
   $('#share').addEventListener('click', share);
+
+  // A pickup's Compare button puts him beside the player he would replace, so
+  // the explanation below says exactly why the move is worth making.
+  $('#league').addEventListener('click', e => {
+    const btn = e.target.closest('[data-compare]');
+    if (!btn) return;
+    const byId = new Map(state.data.players.map(p => [p.id, p]));
+    state.picked = btn.dataset.compare.split(',').map(id => byId.get(id)).filter(Boolean);
+    showError(null);
+    render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  $('#sheetBody').addEventListener('submit', e => {
+    e.preventDefault();
+    if (e.target.id === 'connectForm') findLeagues($('#sleeperInput').value);
+  });
   $('#sheetClose').addEventListener('click', closeSheet);
   $('#scrim').addEventListener('click', e => { if (e.target === $('#scrim')) closeSheet(); });
   document.addEventListener('keydown', e => {
@@ -911,6 +1251,13 @@ function wire() {
     else if (d.format) { state.format = d.format; syncSettings(); closeSheet(); }
     else if (d.te !== undefined) { state.tePremium = Number(d.te); syncSettings(); closeSheet(); }
     else if (d.league) { state.leagueSize = Number(d.league); syncSettings(); closeSheet(); }
+    else if (d.sleeperLeague) {
+      chooseTeam(d.sleeperLeague, d.sleeperUser || null, d.sleeperRoster ? Number(d.sleeperRoster) : null)
+        .catch(err => connectMessage(`<p class="error">${esc(err.message)}</p>`));
+      return;
+    }
+    else if (d.refresh) { closeSheet(); reloadLeague({ id: state.league.id, rosterId: state.league.rosterId }); return; }
+    else if (d.disconnect) { closeSheet(); disconnectLeague(); return; }
     else if (d.apply === 'custom') {
       const from = Number($('#fromSel').value);
       const to = Number($('#toSel').value);
@@ -971,6 +1318,11 @@ async function boot() {
   syncSettings();
   render();
   wire();
+
+  // A league connected on an earlier visit reloads fresh from Sleeper.
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem(LEAGUE_KEY) || 'null'); } catch { /* private mode */ }
+  if (saved && saved.id) reloadLeague(saved);
 
   state.pages = await pages;
   if (state.picked.length) render();
