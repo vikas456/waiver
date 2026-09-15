@@ -111,10 +111,16 @@ def run(data: dict, season: int, start_week: int = 1, end_week: int = 17,
 
         frame = frame.join(baselines(weekly, season, week))
         truth = weekly[(weekly["season"] == season) & weekly["week"].between(week, through)]
-        frame["actual"] = truth.assign(pts=actual_points(truth, "ppr")).groupby("player_id")["pts"].mean()
-        frame = frame.dropna(subset=["actual", "model", "last4", "season_avg"])
+        played = truth.assign(pts=actual_points(truth, "ppr")).groupby("player_id")["pts"]
+        frame["actual"] = played.mean()
+        # What the site ranks on is points per scheduled game, with a missed
+        # game as zero, so the saved frames keep players who never took the
+        # field, with their scheduled games and total points.
+        frame["games"] = future.groupby("player_id").size()
+        frame["total"] = played.sum().reindex(frame.index).fillna(0.0)
         if frames is not None:
             frames.append(frame.assign(week=week))
+        frame = frame.dropna(subset=["actual", "model", "last4", "season_avg"])
 
         for pos in POSITIONS:
             grp = frame[frame["position"] == pos]

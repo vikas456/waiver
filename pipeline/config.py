@@ -143,6 +143,10 @@ DRIVER_LABELS = {
     "offense": "Offensive environment",
     "schedule": "Remaining schedule",
     "coverage": "Coverage matchup",
-    "availability": "Availability",
+    "sample": "Sample size",
+    # Worked out on the site from each week's chance of playing and the
+    # league's replacement level, rather than from the model's SHAP values.
+    "missed_games": "Missed games",
+    "position": "Position scarcity",
     "prior": "Baseline for role",
 }

@@ -189,21 +189,19 @@ function driverTotals(player, from, to, scaleToFormat) {
   return out;
 }
 
-// Contributions are re-centred against the other players in this comparison.
-// Users want to know why B beat A, not why B sits above a league average they
-// never asked about.
-function relativeDrivers(all) {
-  const groups = new Set();
-  all.forEach(d => Object.keys(d).forEach(g => groups.add(g)));
-  const means = {};
-  for (const g of groups) {
-    means[g] = all.reduce((sum, d) => sum + (d[g] || 0), 0) / all.length;
+// Each player is explained against one other: the top pick against the
+// runner-up, everyone else against the top pick. A player's factors add up to
+// his value over replacement, so the differences add up to the gap between
+// the two, and the reasons given always point the way the ranking does.
+function versus(row, other) {
+  const rel = {};
+  for (const g of new Set([...Object.keys(row.factors), ...Object.keys(other.factors)])) {
+    rel[g] = (row.factors[g] || 0) - (other.factors[g] || 0);
   }
-  return all.map(d => {
-    const rel = {};
-    for (const g of groups) rel[g] = (d[g] || 0) - means[g];
-    return rel;
-  });
+  // Between two players at one position the scarcity term holds only
+  // scoring-format rounding, which is not a reason anyone would recognise.
+  if (row.player.position === other.player.position) delete rel.position;
+  return rel;
 }
 
 /* -- Ranking ------------------------------------------------------------- */
@@ -216,22 +214,28 @@ function rank(players, from, to) {
   const rows = players.map(p => {
     const sim = simulateCached(p, from, to);
     const weeks = weeksInRange(p, from, to);
-    const pprMean = weeks.length
-      ? weeks.reduce((a, w) => a + scoreLine(w.c, pprWeights, p.position, 0), 0) / weeks.length
-      : 1;
-    const fmtMean = weeks.length
-      ? weeks.reduce((a, w) => a + scoreLine(w.c, fmtWeights, p.position, state.tePremium), 0) / weeks.length
-      : 1;
-    const scale = pprMean > 0 ? fmtMean / pprMean : 1;
-
+    const n = weeks.length || 1;
+    const pts = weeks.map(w => scoreLine(w.c, fmtWeights, p.position, state.tePremium));
+    const pprMean = weeks.reduce((a, w) => a + scoreLine(w.c, pprWeights, p.position, 0), 0) / n;
+    // Points per game if he plays every game, and the exact expectation once
+    // the chance of missing each one is counted. Ranking on the expectation
+    // rather than the simulation's estimate of it keeps a near tie from
+    // flipping on random draws; the simulation still supplies the range.
+    const ifPlays = pts.reduce((a, b) => a + b, 0) / n;
+    const expected = weeks.reduce((a, w, i) => a + pts[i] * playChance(p, w), 0) / n;
+    const scale = pprMean > 0 ? ifPlays / pprMean : 1;
     const replacement = levels[p.position] || 0;
-    const vorp = sim.ppg - replacement;
 
-    return { player: p, ...sim, replacement, vorp, drivers: driverTotals(p, from, to, scale) };
+    // Every point of his value over replacement belongs to a factor: what the
+    // model sees in his play, the games he is expected to miss, and his
+    // position's baseline against its replacement level.
+    const drivers = driverTotals(p, from, to, scale);
+    const driven = Object.values(drivers).reduce((a, b) => a + b, 0);
+    const factors = { ...drivers, missed_games: expected - ifPlays,
+      position: ifPlays - driven - replacement };
+
+    return { player: p, ...sim, ppg: expected, replacement, vorp: expected - replacement, factors };
   });
-
-  const rel = relativeDrivers(rows.map(r => r.drivers));
-  rows.forEach((r, i) => { r.rel = rel[i]; });
 
   // Two players can share a surname, and "against Moreau and Moreau" is the
   // kind of sentence that makes a reader stop trusting everything above it.
@@ -241,45 +245,59 @@ function rank(players, from, to) {
     r.displayName = clash ? r.player.name : surnames[i];
   });
   rows.sort((a, b) => b.vorp - a.vorp);
+  rows.forEach((r, i) => {
+    r.against = rows.length > 1 ? (i === 0 ? rows[1] : rows[0]) : null;
+    r.rel = r.against ? versus(r, r.against) : {};
+  });
   return rows;
 }
 
 /* -- Reasoning ----------------------------------------------------------- */
 
-function listOf(items) {
-  if (items.length <= 1) return String(items[0] ?? '');
-  return items.slice(0, -1).join(', ') + ' and ' + items[items.length - 1];
-}
-
 // Opportunity means different things by position: a back is judged on touches,
 // a receiver on targets. Saying "targets" about a running back is the kind of
 // small wrongness that makes a whole explanation look automated.
+// Every reason is given against one other player, so the wording compares
+// rather than grading him on his own.
 const OPPORTUNITY_PHRASES = {
   RB: ['takes a bigger share of his backfield\u2019s touches',
-    'splits his backfield\u2019s touches with too many other backs'],
-  QB: ['carries more of his offence\u2019s volume', 'handles less volume than the others'],
+    'takes a smaller share of his backfield\u2019s touches'],
+  QB: ['carries more of his offence\u2019s volume', 'carries less of his offence\u2019s volume'],
+};
+// A quarterback does not run routes; for him this group comes down to snaps.
+const ROLE_PHRASES = {
+  QB: ['has been on the field for more of his team\u2019s snaps',
+    'has been on the field for fewer of his team\u2019s snaps'],
 };
 
 const PHRASES = {
   opportunity: ['commands a bigger share of his offence\u2019s targets',
     'sees a smaller share of his offence\u2019s targets'],
-  route_role: ['is on the field and running routes far more often',
-    'runs routes on too few dropbacks to hold a steady floor'],
-  goal_line: ['owns the work near the goal line', 'rarely gets the ball inside the five'],
-  efficiency: ['is producing more than his opportunities alone would suggest',
-    'has been inefficient with the touches he does get'],
-  td_regression: ['has scored about what his usage supports',
-    'has scored far more than his usage supports'],
+  route_role: ['is on the field and running routes more often',
+    'runs routes on fewer of his team\u2019s dropbacks'],
+  goal_line: ['gets more of the work near the goal line', 'gets less of the work near the goal line'],
+  efficiency: ['gets more out of each opportunity', 'gets less out of each opportunity'],
+  td_regression: ['has scored closer to what his usage supports',
+    'has scored more touchdowns than his usage supports, which tends to even out'],
   trend: ['has been gaining role over the past few weeks',
     'has been losing role over the past few weeks'],
   production: ['has been putting up bigger stat lines', 'has been putting up smaller stat lines'],
   market: ['is rated higher by expert consensus', 'is rated lower by expert consensus'],
-  offense: ['plays in a faster, more productive offence',
-    'is stuck in an offence that does not generate enough volume'],
+  offense: ['plays in a more productive offence', 'plays in a less productive offence'],
   schedule: ['draws a friendlier set of remaining defences',
     'faces a harder set of remaining defences'],
-  availability: ['has a longer track record to judge from', 'has a thin sample to judge from'],
-  prior: ['profiles well for his role', 'profiles poorly for his role'],
+  sample: ['has a longer track record to judge from', 'has a thinner sample to judge from'],
+  prior: ['profiles better for his role', 'profiles worse for his role'],
+  position: ['plays a position where a player like him is harder to replace',
+    'plays a position where a player like him is easier to replace'],
+};
+// Older data files call the sample-size group "availability".
+PHRASES.availability = PHRASES.sample;
+
+// Names for the factors the data file's labels do not cover, or misname.
+const DRIVER_NAMES = {
+  missed_games: 'Missed games', position: 'Position scarcity',
+  sample: 'Sample size', availability: 'Sample size',
 };
 
 const ORDINAL = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
@@ -290,54 +308,91 @@ function lastName(name) {
   return bits[bits.length - 1] || name;
 }
 
-function phraseFor(group, position) {
-  if (group === 'opportunity' && OPPORTUNITY_PHRASES[position]) {
-    return OPPORTUNITY_PHRASES[position];
+// Missed games are described by why he is expected to miss them.
+function missedPhrase(row, positive) {
+  if (positive) return 'is expected to be on the field for more of these games';
+  const inj = row.player.injury;
+  if (inj && (inj.status === 'IR' || inj.status === 'PUP')) {
+    return `is on ${inj.status === 'IR' ? 'injured reserve' : 'the PUP list'} and expected to miss games`;
   }
-  return PHRASES[group] || ['rates well here', 'rates poorly here'];
+  if (inj) return `is listed as ${inj.status.toLowerCase()} and may miss time`;
+  const weeks = weeksInRange(row.player, state.fromWeek, state.toWeek);
+  const chance = weeks.reduce((a, w) => a + playChance(row.player, w), 0) / (weeks.length || 1);
+  return chance < 0.3 ? 'is not expected to start, so he rarely plays'
+    : 'is less likely to be on the field each week';
+}
+
+function phraseFor(group, row, positive) {
+  if (group === 'missed_games') return missedPhrase(row, positive);
+  const pos = row.player.position;
+  const pair = (group === 'opportunity' && OPPORTUNITY_PHRASES[pos])
+    || (group === 'route_role' && ROLE_PHRASES[pos])
+    || PHRASES[group] || ['rates better here', 'rates worse here'];
+  return positive ? pair[0] : pair[1];
+}
+
+// Factors that clearly matter, strongest first. When nothing clears the bar
+// but a reason must lead, the strongest one still does: the gap has to come
+// from somewhere.
+function strongest(entries, mustLead) {
+  const clear = entries.filter(([, v]) => Math.abs(v) > 0.12);
+  if (clear.length || !mustLead) return clear;
+  return entries.filter(([, v]) => Math.abs(v) > 0.02).slice(0, 1);
 }
 
 function splitDrivers(rel) {
-  const entries = Object.entries(rel).filter(([, v]) => Math.abs(v) > 0.12);
+  const entries = Object.entries(rel);
   return {
     up: entries.filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]),
     down: entries.filter(([, v]) => v < 0).sort((a, b) => a[1] - b[1]),
   };
 }
 
-function reasoning(row, position, others) {
-  const rel = row.rel;
-  const { up, down } = splitDrivers(rel);
+function reasoning(row, position) {
+  const other = row.against;
+  if (!other) return '';
   const name = row.displayName || lastName(row.player.name);
+  const them = other.displayName || lastName(other.player.name);
+  // With no game in the range his projection is zero, and no factor the model
+  // weighs is the reason; say the real one.
+  const idle = p => !weeksInRange(p, state.fromWeek, state.toWeek).length;
+  if (idle(row.player)) return `${name} has no game in this range.`;
+  // Only the top pick is explained against a runner-up who might sit out;
+  // anyone else trails the top pick, so the factors below say why.
+  if (position === 1 && idle(other.player)) {
+    return `${name} ranks first, ahead of ${them}, who has no game in this range.`;
+  }
+  const { up, down } = splitDrivers(row.rel);
   const parts = [];
-  const say = ([g, v]) => {
-    const phrase = phraseFor(g, row.player.position);
-    return v > 0 ? phrase[0] : phrase[1];
-  };
+  const say = ([g, v]) => phraseFor(g, row, v > 0);
+  // The reasons always point the way the ranking does: the top pick's case
+  // is made from what puts him ahead, anyone else's from what keeps him
+  // behind. Then the strongest counter-point, because a case that never
+  // mentions the downside is not a case.
+  const [forRank, againstRank] = position === 1 ? [up, down] : [down, up];
+  const lead = strongest(forRank, true);
+  const concede = strongest(againstRank, false);
 
-  if (!up.length && !down.length) {
-    parts.push(`${name} lands close to the middle of this group on every factor the model weighs.`);
-  } else if (position === 1) {
-    // Lead with what earned the ranking, then concede the strongest argument
-    // against it. A case that never mentions the downside is not a case.
-    const lead = up.length ? up : down;
-    parts.push(`${name} ranks first because he ${say(lead[0])}` +
-      (lead[1] ? `, and ${say(lead[1])}.` : '.'));
-    if (up.length && down.length) {
-      parts.push(`That holds even though he ${say(down[0])}.`);
-    }
+  if (!lead.length) {
+    parts.push(`${name} and ${them} finish level on every factor the model weighs, ` +
+      'so the order between them could go either way.');
   } else {
-    const lead = down.length ? down : up;
-    parts.push(`${name} ${say(lead[0])}` +
-      (lead[1] ? `, and ${say(lead[1])},` : ',') +
-      ` which is what drops him to ${ORDINAL[position] || position}.`);
-    if (down.length && up.length) {
-      parts.push(`In his favour, he ${say(up[0])}, but not by enough to close the gap.`);
+    const where = position === 1 ? `first, ahead of ${them}`
+      : `${ORDINAL[position] || `number ${position}`}, behind ${them}`;
+    parts.push(`${name} ranks ${where}, mainly because he ${say(lead[0])}` +
+      (lead[1] ? `, and ${say(lead[1])}.` : '.'));
+    if (concede.length) {
+      parts.push(position === 1
+        ? `That holds even though he ${say(concede[0])}.`
+        : `In his favour, he ${say(concede[0])}, but not by enough to close the gap.`);
     }
   }
 
   const s = row.player.stats;
-  if (s.actualTd != null && s.expectedTd != null) {
+  // The touchdown count only adds something when the reasons above did not
+  // already make the same point.
+  const said = new Set([...lead.slice(0, 2), ...concede.slice(0, 1)].map(([g]) => g));
+  if (!said.has('td_regression') && s.actualTd != null && s.expectedTd != null) {
     const gap = s.actualTd - s.expectedTd;
     if (gap > 1.4) {
       parts.push(`He has ${Math.round(s.actualTd)} touchdowns against the ` +
@@ -351,9 +406,6 @@ function reasoning(row, position, others) {
   if (s.roleChange === 1) {
     parts.push('The model also detected a change in his role this season and ' +
       'weighted the weeks since more heavily than the ones before.');
-  }
-  if (others.length) {
-    parts.push(`Against ${listOf(others)}, that is the difference.`);
   }
   return parts.join(' ');
 }
@@ -438,7 +490,7 @@ function renderDrivers(rel) {
       ? `<i style="left:50%;width:${width}%;background:var(--up)"></i>`
       : `<i style="right:50%;width:${width}%;background:var(--down)"></i>`;
     return `<div class="driver">
-      <span>${labels[g] || g}</span>
+      <span>${esc(DRIVER_NAMES[g] || labels[g] || g)}</span>
       <div class="track">${bar}</div>
       <b style="color:var(${v > 0 ? '--up' : '--down'})">${signed(v)}</b>
     </div>`;
@@ -498,7 +550,6 @@ function renderRanking(rows) {
   const compared = rows.length > 1;
   $('#ranking').innerHTML = rows.map((row, i) => {
     const p = row.player;
-    const others = rows.filter(r => r !== row).map(r => r.displayName);
     return `<li>
       <details class="row"${i === 0 ? ' open' : ''}>
         <summary class="row-head">
@@ -522,7 +573,7 @@ function renderRanking(rows) {
           ${compared ? renderDrivers(row.rel) : ''}
           ${renderStatLine(row)}
           ${injuryNote(p)}
-          ${compared ? `<p class="reason">${esc(reasoning(row, i + 1, others))}</p>` : ''}
+          ${compared ? `<p class="reason">${esc(reasoning(row, i + 1))}</p>` : ''}
           ${state.pages[p.id] ? `<a class="outlook" href="/players/${esc(state.pages[p.id])}/">See ${esc(p.name)}’s full outlook</a>` : ''}
         </div>
       </details>
