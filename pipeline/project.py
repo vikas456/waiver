@@ -62,8 +62,10 @@ def early_season_form(rows: pd.DataFrame, rosters: pd.DataFrame, season: int,
 
     # Inactive, reserve and practice-squad players stay. A waiver search has to
     # find a starter who sat out week one, and keeping only the active list
-    # dropped the top-ranked tight end.
-    if "status" in rosters.columns:
+    # dropped the top-ranked tight end. Releases only count live: a past
+    # season's roster records who was cut by its end, which a backtest of
+    # week one must not know.
+    if season == CURRENT_SEASON and "status" in rosters.columns:
         rosters = rosters[~rosters["status"].isin(["CUT", "RET"])]
     form = form[form.index.isin(rosters["player_id"])].copy()
     form["season"] = season
@@ -123,6 +125,15 @@ def upcoming_rows(rows: pd.DataFrame, schedule: pd.DataFrame, season: int,
                        & (rows["week"] == from_week) & (rows["games_played"] >= 1)]
                   .drop_duplicates("player_id")
                   .set_index("player_id"))
+        # The last game played does not know about a release or a trade since.
+        # Live, this season's roster does: a released player drops out and a
+        # traded one takes his new team's schedule. A past season's roster
+        # describes its end, so a backtest keeps what was known at the time.
+        if season == CURRENT_SEASON and "status" in rosters.columns:
+            live = (rosters[~rosters["status"].isin(["CUT", "RET"])]
+                    .drop_duplicates("player_id").set_index("player_id"))
+            latest = latest[latest.index.isin(live.index)].copy()
+            latest["team"] = live["team"].reindex(latest.index).fillna(latest["team"])
 
     scripts = features.game_script(schedule)
     gs = scripts[(scripts["season"] == season)

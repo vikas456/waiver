@@ -147,6 +147,10 @@ def return_chance(now: dict, week: int, from_week: int) -> float:
     back_by = lambda k: 0.0 if k < 0 else curve[min(k, len(curve) - 1)]
     # Everyone who would have been back before now is ruled out already.
     gone = back_by(from_week - now["since"] - 1)
+    # A curve that has everyone back by now says nothing about a player who
+    # is still out; take him as due back rather than divide by zero.
+    if gone >= 1.0:
+        return 1.0
     return max(0.0, (back_by(week - now["since"]) - gone) / (1 - gone))
 
 
