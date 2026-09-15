@@ -38,11 +38,6 @@ COMPONENT_PARAMS = {
     "reg_lambda": 2.0,
 }
 
-CONTINUOUS_PARAMS = {
-    **COMPONENT_PARAMS,
-    "objective": "reg:squarederror",
-}
-
 RANK_PARAMS = {
     "objective": "rank:pairwise",
     "max_depth": 4,
@@ -53,10 +48,10 @@ RANK_PARAMS = {
     "reg_lambda": 3.0,
 }
 
-# Counting stats get a Poisson objective because they are non-negative and
-# right-skewed; yardage is continuous.
-COUNT_STATS = {"pass_td", "rush_td", "rec_td", "reception", "interception",
-               "fumble_lost", "two_point"}
+# Every component gets a Poisson objective, yardage included: all are
+# non-negative and right-skewed. Yardage used squared error until the
+# walk-forward backtest showed Poisson ordering players better on 2025 and on
+# the held-out 2024.
 
 
 def _dmatrix(df: pd.DataFrame, cols: list[str], label=None, weight=None):
@@ -81,9 +76,8 @@ def train_components(df: pd.DataFrame, rounds: int = 400) -> dict:
             y = sub[stat].fillna(0).clip(lower=0)
             if y.sum() < 50:
                 continue
-            params = COMPONENT_PARAMS if stat in COUNT_STATS else CONTINUOUS_PARAMS
             dtrain = _dmatrix(sub, cols, label=y, weight=sub["season_weight"])
-            models[pos][stat] = xgb.train(params, dtrain, num_boost_round=rounds)
+            models[pos][stat] = xgb.train(COMPONENT_PARAMS, dtrain, num_boost_round=rounds)
     return {"models": models, "features": cols}
 
 

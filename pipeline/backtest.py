@@ -81,7 +81,8 @@ def baselines(weekly: pd.DataFrame, season: int, week: int) -> pd.DataFrame:
 
 def run(data: dict, season: int, start_week: int = 1, end_week: int = 17,
         horizon: int = 4, rounds: int = 250, market_weight: float = 0.25,
-        use_market: bool = True, verbose: bool = True) -> pd.DataFrame:
+        use_market: bool = True, verbose: bool = True,
+        frames: list | None = None) -> pd.DataFrame:
     weekly = data["weekly"]
     opener = SEASON_OPENER.get(season)
     results = []
@@ -112,6 +113,8 @@ def run(data: dict, season: int, start_week: int = 1, end_week: int = 17,
         truth = weekly[(weekly["season"] == season) & weekly["week"].between(week, through)]
         frame["actual"] = truth.assign(pts=actual_points(truth, "ppr")).groupby("player_id")["pts"].mean()
         frame = frame.dropna(subset=["actual", "model", "last4", "season_avg"])
+        if frames is not None:
+            frames.append(frame.assign(week=week))
 
         for pos in POSITIONS:
             grp = frame[frame["position"] == pos]
@@ -157,6 +160,8 @@ def main() -> None:
     ap.add_argument("--rounds", type=int, default=250)
     ap.add_argument("--market-weight", type=float, default=0.25)
     ap.add_argument("--out", help="write per-week, per-position results to this CSV")
+    ap.add_argument("--frames", help="write every scored player-week to this parquet file, "
+                                     "so blends can be compared without retraining")
     args = ap.parse_args()
 
     # Testing an earlier season must not train on the seasons after it.
@@ -168,14 +173,17 @@ def main() -> None:
         from .ingest import load_all
         data = load_all(seasons)
 
+    frames: list | None = [] if args.frames else None
     res = run(data, season=args.season, start_week=args.start_week, end_week=args.end_week,
               horizon=args.horizon, rounds=args.rounds, market_weight=args.market_weight,
-              use_market=args.source != "synthetic")
+              use_market=args.source != "synthetic", frames=frames)
     if res.empty:
         print("No comparable weeks produced results.")
         return
     if args.out:
         res.to_csv(args.out, index=False)
+    if frames:
+        pd.concat(frames).rename_axis("player_id").reset_index().to_parquet(args.frames, index=False)
 
     print("\nAccuracy by method, averaged over walk-forward weeks")
     print(summarise(res).to_string())

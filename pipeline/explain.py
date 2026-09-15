@@ -14,6 +14,8 @@ those specific players, not describe him in isolation.
 
 from __future__ import annotations
 
+import json
+
 import numpy as np
 import pandas as pd
 import xgboost as xgb
@@ -46,6 +48,26 @@ def _group_for(feature: str) -> str:
     return "prior"
 
 
+def _log_link(model: xgb.Booster) -> bool:
+    """Poisson models add their contributions up on the log scale."""
+    return json.loads(model.save_config())["learner"]["objective"]["name"] == "count:poisson"
+
+
+def _to_output_scale(contrib: np.ndarray, bias: np.ndarray) -> np.ndarray:
+    """Share a log-scale model's movement from its baseline among the drivers.
+
+    A Poisson model predicts exp(bias + sum of contributions), so each
+    contribution is a log ratio, not a count. Splitting the real change,
+    exp(bias + total) - exp(bias), in proportion to the log contributions
+    keeps the drivers additive and in the stat's own units.
+    """
+    total = contrib.sum(axis=1)
+    change = np.exp(bias + total) - np.exp(bias)
+    # Where the contributions cancel out, the ratio tends to exp(bias).
+    scale = np.divide(change, total, out=np.exp(bias), where=np.abs(total) > 1e-9)
+    return contrib * scale[:, None]
+
+
 def shap_drivers(df: pd.DataFrame, bundle: dict, variance: dict,
                  scoring_weights: dict) -> pd.DataFrame:
     """Per-row driver contributions, expressed in fantasy points.
@@ -69,10 +91,13 @@ def shap_drivers(df: pd.DataFrame, bundle: dict, variance: dict,
             weight = scoring_weights.get(stat, 0.0)
             if weight == 0.0:
                 continue
-            contrib = model.predict(d, pred_contribs=True)
+            raw = model.predict(d, pred_contribs=True)
             # Last column is the bias term, which is the baseline rather than
             # a driver, so it is dropped.
-            contrib = contrib[:, :-1] * weight
+            contrib, bias = raw[:, :-1], raw[:, -1]
+            if _log_link(model):
+                contrib = _to_output_scale(contrib, bias)
+            contrib = contrib * weight
             for j, feature in enumerate(cols):
                 out.loc[mask, _group_for(feature)] += contrib[:, j]
     return out

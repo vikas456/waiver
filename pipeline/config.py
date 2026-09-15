@@ -123,10 +123,11 @@ ROLLING_WINDOWS = [3, 5]
 # Set from the walk-forward backtest, which scores the model, the consensus
 # and blends of the two on the same weeks. Before week three the model knows
 # least and the market knows about offseason moves and rookies, so it gets
-# more say: on 2025 an even blend matched the consensus there, while from
-# week three the model alone beat it and a light blend did best.
+# more say: a 0.7 share did best in weeks one and two on both 2025 and the
+# held-out 2024, about half a point of pairwise accuracy above an even blend
+# and above the consensus alone. From week three a light blend stays best.
 MARKET_WEIGHT = 0.25
-MARKET_WEIGHT_EARLY = 0.5
+MARKET_WEIGHT_EARLY = 0.7
 
 # Human-readable names for the explanation layer, keyed by the feature group
 # that SHAP contributions are aggregated into.
