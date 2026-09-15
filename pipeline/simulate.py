@@ -22,8 +22,11 @@ RNG = np.random.default_rng(20260913)
 BASE_MISS_RATE = {"QB": 0.055, "RB": 0.105, "WR": 0.075, "TE": 0.085}
 
 # How an injury designation changes the odds of playing.
+# Chance of playing the week of the final injury report, measured on
+# fantasy-relevant players in 2022-2023: a doubtful player almost never
+# played, and a questionable one about two times in three.
 DESIGNATION_PLAY_PROB = {
-    "healthy": 1.0, "questionable": 0.72, "doubtful": 0.22,
+    "healthy": 1.0, "questionable": 0.67, "doubtful": 0.02,
     "out": 0.0, "ir": 0.0, "suspended": 0.0,
 }
 
