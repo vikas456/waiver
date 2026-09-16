@@ -111,6 +111,18 @@ function meanPpg(player, from, to) {
   return total / weeks.length;
 }
 
+// Measured share of the games a player plays that end as duds, fitted per
+// position on the log of his projection by the pipeline. A data file from
+// before the fit carries none, and then no game is drawn as a dud.
+function dudChance(position, pprMean) {
+  const fit = (state.data.meta.dudOdds || {})[position];
+  if (!fit) return 0;
+  const z = 1 / (1 + Math.exp(-(fit.intercept + fit.slope * Math.log(Math.max(pprMean, 0.2)))));
+  // Capped, so a deep backup's projection is not squeezed into a handful of
+  // enormous games.
+  return Math.min(0.6, Math.max(0, z));
+}
+
 function simulate(player, from, to, draws = 3000) {
   const weights = state.data.meta.scoringFormats[state.format];
   const weeks = weeksInRange(player, from, to);
@@ -130,6 +142,13 @@ function simulate(player, from, to, draws = 3000) {
   const pprMeans = weeks.map(wk =>
     Math.max(scoreLine(wk.c, state.data.meta.scoringFormats.ppr, player.position, 0), 0.05));
   const sds = weeks.map((wk, i) => Math.max(wk.sd * (means[i] / pprMeans[i]), 0.5));
+  // Some of the games he plays are duds: the target never comes, the carry
+  // goes nowhere. They happen far more often than one smooth curve allows, so
+  // they are drawn separately, at the measured rate. The rest of the curve
+  // carries his whole projection between fewer games, which is what keeps the
+  // average exactly where the model put it.
+  const duds = pprMeans.map(m => dudChance(player.position, m));
+  const wellMeans = means.map((m, i) => m / (1 - duds[i]));
 
   const perGame = new Float64Array(draws);
   const totals = new Float64Array(draws);
@@ -139,10 +158,11 @@ function simulate(player, from, to, draws = 3000) {
     let total = 0, played = 0;
     for (let i = 0; i < weeks.length; i++) {
       if (!single && Math.random() >= playChance(player, weeks[i])) continue;
-      const shape = (means[i] / sds[i]) ** 2;
-      const scale = (sds[i] * sds[i]) / means[i];
-      total += gamma(shape, scale);
       played++;
+      if (Math.random() < duds[i]) continue;
+      const shape = (wellMeans[i] / sds[i]) ** 2;
+      const scale = (sds[i] * sds[i]) / wellMeans[i];
+      total += gamma(shape, scale);
     }
     totals[d] = total;
     // Averaged over every scheduled game, so a missed game counts as the zero
@@ -157,14 +177,9 @@ function simulate(player, from, to, draws = 3000) {
   let totalSum = 0;
   for (let d = 0; d < draws; d++) totalSum += totals[d];
 
-  // Tested on single games in 2024 and 2025: a player projected for under 7
-  // PPR points when he plays scores next to nothing in more than one game in
-  // ten, which the gamma curve misses, so his floor is zero. From 7 points up,
-  // about one game in ten fell below the floor and one in ten above the ceiling.
-  const dud = single && pprMeans[0] < 7;
   return {
     ppg: sorted.reduce((a, b) => a + b, 0) / draws,
-    p10: dud ? 0 : at(0.10),
+    p10: at(0.10),
     p90: at(0.90),
     total: totalSum / draws,
     games: gameSum / draws,
@@ -1155,11 +1170,80 @@ function leagueAdvice() {
   return { pickups, free, roster: start };
 }
 
+const SLOT_LABELS = { QB: 'QB', RB: 'RB', WR: 'WR', TE: 'TE', REC_FLEX: 'W/T',
+  WRRB_FLEX: 'W/R', FLEX: 'FLEX', SUPER_FLEX: 'SUPERFLEX' };
+
+// The best lineup this roster can field, slot by slot, with whoever is left
+// over on the bench. The same fill as lineupPoints, but it keeps the
+// assignment rather than only the total.
+function bestLineup(roster, slots) {
+  const pool = [...roster].sort((a, b) => b.pts - a.pts);
+  const used = new Set();
+  const picks = [];
+  for (const [slot, eligible] of Object.entries(SLOT_ELIGIBLE)) {
+    for (let i = slots.filter(s => s === slot).length; i > 0; i--) {
+      const pick = pool.find(m => !used.has(m) && eligible.includes(m.p.position));
+      if (pick) used.add(pick);
+      picks.push({ slot, m: pick || null });
+    }
+  }
+  return { picks, bench: pool.filter(m => !used.has(m)) };
+}
+
+// One week, one roster: who to start in each slot, and the calls close enough
+// that the bench player behind them is worth a look.
+function renderLineup(L, box) {
+  const week = state.fromWeek;
+  const bySleeper = new Map(state.data.players.filter(p => p.sleeperId).map(p => [p.sleeperId, p]));
+  const roster = [...L.mine].map(id => bySleeper.get(id)).filter(Boolean)
+    .map(p => ({ p, pts: meanPpg(p, week, week) }));
+  const slots = L.slots.length ? L.slots : DEFAULT_LINEUP;
+  const { picks, bench } = bestLineup(roster, slots);
+  const where = p => {
+    const wk = p.weeks.find(w => w.w === week);
+    return wk ? `vs ${esc(wk.opp)}` : 'no game';
+  };
+
+  const rows = picks.map(({ slot, m }) => {
+    const label = `<span class="slot">${SLOT_LABELS[slot] || esc(slot)}</span>`;
+    if (!m) {
+      return `<li class="pick"><div class="pick-who">${label}<div><strong>Nobody eligible</strong>
+        <small>No one on your roster can fill this slot</small></div></div></li>`;
+    }
+    // The best bench player who could take the slot instead.
+    const rival = bench.find(b => SLOT_ELIGIBLE[slot].includes(b.p.position));
+    const close = rival && m.pts - rival.pts < 1.5
+      ? `<p class="pick-bid">Close call: ${esc(rival.p.name)} projects ${rival.pts.toFixed(1)}.</p>` : '';
+    return `<li class="pick">
+      <div class="pick-who">${label}${avatar(m.p)}<div><strong>${esc(m.p.name)}</strong>
+        <small>${esc(m.p.position)} · ${esc(m.p.team)} · ${where(m.p)}${m.p.injury
+          ? ` · ${esc(SHORT_STATUS[m.p.injury.status] || m.p.injury.status)}` : ''}</small></div></div>
+      <div class="pick-gain"><b>${m.pts.toFixed(1)}</b><small>projected</small></div>
+      ${rival ? `<button class="chip" type="button" data-compare="${esc(m.p.id)},${esc(rival.p.id)}">Compare</button>` : ''}
+      ${close}</li>`;
+  }).join('');
+
+  const sat = bench.slice(0, 8).map(b =>
+    `<p><span class="label">${esc(b.p.position)}</span>${esc(b.p.name)} <small>${b.pts.toFixed(1)} · ${where(b.p)}</small></p>`).join('');
+  box.innerHTML = `<div class="league-head">
+      <h2 id="leagueTitle">Start or sit for ${esc(L.team)} <span class="beta">Beta</span></h2>
+      <span>${esc(L.name)} · week ${week} · ${esc(state.data.meta.scoringFormats.league.label.replace('League scoring, ', ''))}</span>
+    </div>
+    ${rows ? `<ol class="picks">${rows}</ol>`
+      : '<p class="league-note">Your roster has no players the model projects yet.</p>'}
+    <p class="league-note">Your best lineup for week ${week} in your league's scoring and slots,
+      counting the chance an injured player sits out. A close call means the bench player behind
+      him is within 1.5 points, which a single touchdown settles.</p>
+    ${sat ? `<details class="league-more"><summary>On your bench</summary>${sat}</details>` : ''}`;
+}
+
 function renderLeague() {
   const box = $('#league');
   const L = state.league;
   box.hidden = !L || state.picked.length > 0;
   if (box.hidden) return;
+  // A single week is a lineup question, not a waiver one.
+  if (startSit()) return renderLineup(L, box);
   const { pickups, free, roster } = leagueAdvice();
   const rows = pickups.map(({ add, drop, gain }) => `<li class="pick">
       <div class="pick-who">${avatar(add.p)}<div><strong>${esc(add.p.name)}</strong>

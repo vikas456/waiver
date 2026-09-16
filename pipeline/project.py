@@ -32,6 +32,13 @@ from .scoring import score_components
 OUT_PATH = Path("web/data/projections.json")
 
 
+# Sportsbooks price the coming week and usually the one after it, so a
+# forecast may use a real line that far out and no further. Backtests are held
+# to the same limit, since the final line for a later week is information the
+# live site never has.
+LINES_KNOWN_AHEAD = 1
+
+
 def early_season_form(rows: pd.DataFrame, rosters: pd.DataFrame, season: int,
                       from_week: int) -> pd.DataFrame:
     """Form for weeks 1 and 2, before any player has a game with a game
@@ -143,7 +150,7 @@ def upcoming_rows(rows: pd.DataFrame, schedule: pd.DataFrame, season: int,
     # Using the final lines would hand the model information the live site
     # never has, and flatter every backtest.
     typical = _typical_lines(scripts, season, from_week)
-    unknown = (gs["week"] > from_week) | gs["implied_total"].isna()
+    unknown = (gs["week"] > from_week + LINES_KNOWN_AHEAD) | gs["implied_total"].isna()
     for col in ["implied_total", "spread"]:
         gs.loc[unknown, col] = gs.loc[unknown, "team"].map(typical[col])
     gs["is_favourite"] = (gs["spread"] > 0).astype(int)
@@ -270,6 +277,9 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
     fc = forecast(data, season, from_week, through, rounds, verbose, ranks, weight)
     future, preds, comp_bundle = fc["future"], fc["preds"], fc["bundle"]
     variance = train.fit_variance(fc["train"], comp_bundle)
+    # How often a player who plays scores next to nothing, so the site's floor
+    # counts the game where nothing came his way.
+    dud_odds = train.fit_dud(fc["train"], comp_bundle)
 
     ppr_pts = score_components(preds, "ppr", positions=future["position"])
     drivers = explain.shap_drivers(future, comp_bundle, variance,
@@ -389,6 +399,9 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
             "replacementRankPerTeam": {p: __import__("pipeline.config", fromlist=["x"])
                                        .REPLACEMENT_RANK_PER_TEAM[p] for p in POSITIONS},
             "driverLabels": explain.DRIVER_LABELS,
+            # Per position, the chance a game is a dud, as intercept + slope on
+            # the log of the projected points. The site's floor needs it.
+            "dudOdds": dud_odds,
         },
         "players": list(players.values()),
     }

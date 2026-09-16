@@ -36,6 +36,7 @@ FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
   <a href="/">Compare players</a>
   <a href="/waiver-wire/">Waiver pickups</a>
   <a href="/ir-stash/">IR stash</a>
+  <a href="/start-sit/">Start or sit</a>
   <a href="/rankings/">Rankings</a>
   <a href="/rankings/qb/">QB</a>
   <a href="/rankings/rb/">RB</a>
@@ -542,6 +543,184 @@ def stash_page(meta: dict, rows: list[dict], levels: dict, slug: dict, analytics
                    _breadcrumbs(("IR stash", "/ir-stash/"))])
 
 
+
+# ---------------------------------------------------------------------------
+# Start or sit, one week at a time
+# ---------------------------------------------------------------------------
+
+# Where the last startable player at each position sits in a week's ranking,
+# in a twelve-team league: the same line the rest of the site calls replacement
+# level, read here as "the worst player you would put in your lineup".
+def startable_rank(pos: str) -> int:
+    return max(1, round(REPLACEMENT_RANK_PER_TEAM.get(pos, 2) * LEAGUE_SIZE))
+
+
+def week_entry(player: dict, weights: dict, week: int, dud_odds: dict) -> dict | None:
+    """One player's week: points if he plays, his chance of playing, and the
+    floor and ceiling the site draws, or nothing when he has no game."""
+    wk = next((w for w in player["weeks"] if w["w"] == week), None)
+    if wk is None:
+        return None
+    from scipy.stats import gamma
+
+    if_plays = sum(v * weights.get(k, 0) for k, v in wk["c"].items())
+    chance = wk.get("p", player["playProb"])
+    mean = max(if_plays, 0.05)
+    sd = max(wk.get("sd", 4.0), 0.5)
+    # Mirrors dudChance and the mixture in web/app.js: some games he plays are
+    # duds, so they are drawn apart from the rest of the curve.
+    fit = (dud_odds or {}).get(player["position"])
+    z = 0.0
+    if fit:
+        import math
+        z = 1 / (1 + math.exp(-(fit["intercept"] + fit["slope"] * math.log(max(mean, 0.2)))))
+        z = min(0.6, max(0.0, z))
+    well = mean / (1 - z)
+    shape, scale = (well / sd) ** 2, sd ** 2 / well
+    q = lambda t: 0.0 if (t - z) / (1 - z) <= 0 else float(gamma.ppf((t - z) / (1 - z), shape, scale=scale))
+    return {"player": player, "opp": wk["opp"], "chance": chance, "ifPlays": if_plays,
+            "points": if_plays * chance, "floor": q(0.10), "ceiling": q(0.90)}
+
+
+def start_sit_table(players: list[dict], weights: dict, week: int, dud_odds: dict) -> dict[str, list[dict]]:
+    """Every player with a game that week, best first, by position."""
+    table: dict[str, list[dict]] = {}
+    for p in players:
+        entry = week_entry(p, weights, week, dud_odds)
+        if entry:
+            table.setdefault(p["position"], []).append(entry)
+    for pos, rows in table.items():
+        rows.sort(key=lambda r: r["points"], reverse=True)
+        for i, r in enumerate(rows, start=1):
+            r["rank"] = i
+    return table
+
+
+def verdict(row: dict) -> tuple[str, str]:
+    """Start him, a flex call, or sit him, with the pill to show it in."""
+    line = startable_rank(row["player"]["position"])
+    if row["rank"] <= line - 3:
+        return "Start him", "good"
+    if row["rank"] <= line + 3:
+        return "Flex call", "neutral"
+    return "Sit him", "bad"
+
+
+def _verdict_text(row: dict, meta: dict) -> str:
+    p, pos = row["player"], row["player"]["position"]
+    rank, line = row["rank"], startable_rank(row["player"]["position"])
+    name = p["name"]
+    call, _ = verdict(row)
+    week = meta["fromWeek"]
+    where = (f"{pos}{rank} this week, inside the {pos}{line} who start in a twelve-team league"
+             if rank <= line else
+             f"{pos}{rank} this week, outside the {pos}{line} who start in a twelve-team league")
+    if call == "Start him":
+        lead = f"Start {name} in week {week}."
+    elif call == "Flex call":
+        lead = f"{name} is a flex call in week {week}."
+    else:
+        lead = f"Sit {name} in week {week} if you have another option."
+    return (f"{lead} Waiver projects {row['points']:.1f} points against {row['opp']}, which makes him "
+            f"{where}. A bad week for him looks like {row['floor']:.1f} points and a good one "
+            f"{row['ceiling']:.1f}.")
+
+
+def start_sit_page(meta: dict, row: dict, peers: list[dict], slug: dict, analytics: str) -> str:
+    p = row["player"]
+    pos, week = p["position"], meta["fromWeek"]
+    call, tone = verdict(row)
+    title = f"Start or sit {p['name']} in week {week}? — Waiver"
+    description = (f"{p['name']} projects {row['points']:.1f} points against {row['opp']} in week {week}, "
+                   f"{pos}{row['rank']} this week, with a floor of {row['floor']:.1f} and a ceiling of "
+                   f"{row['ceiling']:.1f}.")
+    inj = p.get("injury")
+    note = ""
+    if inj:
+        note = (f'<p class="lede"><span class="pill bad">{e(inj["status"])}</span> '
+                f'{e(f"Listed as {inj['status'].lower()}" + (f" ({inj['detail'].lower()})" if inj.get("detail") else "") + f", so his chance of playing is {round(row['chance'] * 100)}%. The projection counts that chance; the floor and ceiling are for a game he plays.")}</p>')
+    figures = [("Projected points", f"{row['points']:.1f}"), ("Floor", f"{row['floor']:.1f}"),
+               ("Ceiling", f"{row['ceiling']:.1f}"), ("Rank this week", f"{pos}{row['rank']}"),
+               ("Opponent", e(row["opp"])), ("Chance he plays", f"{round(row['chance'] * 100)}%")]
+    figure_rows = "".join(f"<div><dt>{label}</dt><dd>{value}</dd></div>" for label, value in figures)
+    others = "\n".join(
+        f'      <tr><td>{_player_link(r["player"], slug)}{_tag(r["player"])}</td>'
+        f'<td class="num">{pos}{r["rank"]}</td><td>{e(r["opp"])}</td>'
+        f'<td class="num">{r["points"]:.1f}</td><td class="num">{r["floor"]:.1f}\u2013{r["ceiling"]:.1f}</td>'
+        f'<td><a href="/?p={e(p["id"])},{e(r["player"]["id"])}&amp;w={week}-{week}">Compare</a></td></tr>'
+        for r in peers)
+    body = f"""  <article class="board">
+    <h1>Start or sit {e(p['name'])} in week {week}?</h1>
+    <p class="lede"><span class="pill {tone}">{call}</span> {e(_verdict_text(row, meta))}</p>
+    {note}
+    <dl class="figures">
+      {figure_rows}
+    </dl>
+    <h2>Others at his position this week</h2>
+    <div class="board-table-wrap">
+    <table class="board-table">
+      <thead><tr><th scope="col">Player</th><th scope="col" class="num">Rank</th><th scope="col">Opponent</th><th scope="col" class="num">Projected</th><th scope="col" class="num">Floor\u2013ceiling</th><th scope="col"><span class="visually-hidden">Compare</span></th></tr></thead>
+      <tbody>
+{others}
+      </tbody>
+    </table>
+    </div>
+    <p><a class="share" href="/?p={e(p['id'])}&amp;w={week}-{week}">Compare {e(p['name'])} with your own players</a></p>
+    <p><a href="/players/{slug[p['id']]}/">See his rest-of-season outlook</a> ·
+      <a href="/start-sit/">All start or sit calls for week {week}</a></p>
+    <p class="footnote">Projected points count his chance of playing. The floor and the ceiling are for a
+      game he plays: he should score below the floor about one week in ten, and above the ceiling about
+      one week in ten. Tested on single games in the 2024 and 2025 seasons. The line between starting and
+      sitting is the {pos}{startable_rank(pos)} in a twelve-team league; deeper leagues start more.</p>
+  </article>"""
+    return _shell(meta, f"/start-sit/{{slug}}/", title, description, body, analytics,
+                  [_breadcrumbs(("Start or sit", "/start-sit/"), (p["name"], f"/start-sit/{{slug}}/"))])
+
+
+def start_sit_hub(meta: dict, table: dict[str, list[dict]], pages: set[str], slug: dict,
+                  analytics: str) -> str:
+    week = meta["fromWeek"]
+    title = f"Start or sit: week {week} calls for every position, {meta['season']} — Waiver"
+    description = (f"Who to start and who to sit in week {week}, with a projection, a floor and a "
+                   "ceiling for every player, from an AI model tested against expert rankings.")
+    sections = []
+    for pos in POSITIONS:
+        rows = [r for r in table.get(pos, []) if r["player"]["id"] in pages][:15]
+        if not rows:
+            continue
+        line = startable_rank(pos)
+        body = "\n".join(
+            f'      <tr><td class="num">{r["rank"]}</td>'
+            f'<td><a href="/start-sit/{slug[r["player"]["id"]]}/">{e(r["player"]["name"])}</a>{_tag(r["player"])}</td>'
+            f'<td>{e(r["player"]["team"])}</td><td>{e(r["opp"])}</td>'
+            f'<td class="num">{r["points"]:.1f}</td>'
+            f'<td class="num">{r["floor"]:.1f}\u2013{r["ceiling"]:.1f}</td></tr>'
+            for r in rows)
+        sections.append(f"""    <h2 id="{pos.lower()}">{NAMES[pos].capitalize()}s</h2>
+    <p class="lede">The {pos}{line} is where starting ends in a twelve-team league.</p>
+    <div class="board-table-wrap">
+    <table class="board-table">
+      <thead><tr><th scope="col" class="num">Rank</th><th scope="col">Player</th><th scope="col">Team</th><th scope="col">Opponent</th><th scope="col" class="num">Projected</th><th scope="col" class="num">Floor\u2013ceiling</th></tr></thead>
+      <tbody>
+{body}
+      </tbody>
+    </table>
+    </div>""")
+    nav = "".join(f'<a href="#{pos.lower()}">{pos}</a>' for pos in POSITIONS if table.get(pos))
+    body = f"""  <section class="board">
+    <h1>Start or sit in week {week}</h1>
+    <p class="lede">What Waiver projects for week {week} alone, with a floor and a ceiling for each
+      player, so you can start the steady one when you are ahead and the volatile one when you need
+      points. To weigh up two of your own players, <a href="/?w={week}-{week}">compare them in the tool</a>.</p>
+    <nav class="board-nav" aria-label="Positions">{nav}</nav>
+{chr(10).join(sections)}
+    <p class="footnote">Projected points count each player's chance of playing. A floor is a bad week
+      and a ceiling a good one: about one week in ten falls outside each. Rebuilt every week.</p>
+  </section>"""
+    return _shell(meta, "/start-sit/", title, description, body, analytics,
+                  [_breadcrumbs(("Start or sit", "/start-sit/"))])
+
+
 def _reason_text(p: dict, weights: dict, higher: bool, labels: dict) -> str:
     # A quarterback runs no routes; for him that group comes down to snaps.
     name = lambda g: "Snap share" if (g == "route_role" and p["position"] == "QB") else labels.get(g, g)
@@ -754,6 +933,7 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
         pages[f"rankings/{pos.lower()}/index.html"] = position_page(meta, pos, by_pos[pos], ppg, slug, analytics)
     if trending:
         pages["waiver-wire/index.html"] = waiver_page(meta, trending, ppg, levels, slug, analytics)
+    players_by_pos = {p["id"]: p["position"] for p in players}
     stash = stash_rows(players, weights, levels)
     # A stash is searched by name as much as anyone, so each has a page too.
     for r in itertools.chain(*split_stash(stash)):
@@ -763,6 +943,23 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     for pid, p in featured.items():
         page = player_page(meta, p, ppg, pos_rank[pid], ppg[pid] - levels[p["position"]], weights, analytics)
         pages[f"players/{slug[pid]}/index.html"] = page.replace("{slug}", slug[pid])
+    # One page per player for the week ahead, which is how people search in
+    # season, plus a hub that answers the position-wide version of it.
+    week = meta["fromWeek"]
+    calls = start_sit_table(players, weights, week, meta.get("dudOdds"))
+    start_sit_slugs = []
+    for pos, rows in calls.items():
+        by_id = {r["player"]["id"]: i for i, r in enumerate(rows)}
+        for pid in featured:
+            i = by_id.get(pid)
+            if i is None or players_by_pos.get(pid) != pos:
+                continue
+            near = [r for r in rows[max(0, i - 2):i + 3] if r["player"]["id"] != pid]
+            page = start_sit_page(meta, rows[i], near, slug, analytics)
+            pages[f"start-sit/{slug[pid]}/index.html"] = page.replace("{slug}", slug[pid])
+            start_sit_slugs.append(slug[pid])
+    pages["start-sit/index.html"] = start_sit_hub(meta, calls, set(featured), slug, analytics)
+
     # Where the model parts with the experts, and how its calls have gone.
     labels = meta.get("driverLabels", {}) | {"missed_games": "Missed games"}
     pages["model-vs-experts/index.html"] = experts_page(meta, disagree.disagreements(payload), slug,
@@ -773,6 +970,7 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     # Last week's player pages go, so a player who drops out of the rankings
     # does not leave a stale page behind.
     shutil.rmtree(out / "players", ignore_errors=True)
+    shutil.rmtree(out / "start-sit", ignore_errors=True)
     for rel, text in pages.items():
         path = out / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -784,7 +982,8 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     # A waiver page from an earlier build stays listed if this week's adds
     # could not be fetched, so the sitemap never drops a live page.
     listed = (["/", "/waiver-wire/", "/rankings/"] + [f"/rankings/{p.lower()}/" for p in POSITIONS]
-              + ["/ir-stash/", "/model-vs-experts/", "/scorecard/"]
+              + ["/ir-stash/", "/start-sit/", "/model-vs-experts/", "/scorecard/"]
+              + [f"/start-sit/{s}/" for s in sorted(start_sit_slugs)]
               + [f"/players/{s}/" for s in sorted(slug.values())] + STATIC_PATHS)
     if not (out / "waiver-wire/index.html").exists():
         listed.remove("/waiver-wire/")

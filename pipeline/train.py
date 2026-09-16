@@ -113,6 +113,12 @@ def train_ranker(df: pd.DataFrame, rounds: int = 300) -> dict:
     return {"models": models, "features": cols}
 
 
+# A game worth this or less is a dud: the target that never came, the carry
+# that went nowhere. Kept apart from the rest of the curve because it happens
+# far more often than a smooth distribution expects.
+DUD_POINTS = 1.0
+
+
 def fit_variance(df: pd.DataFrame, component_bundle: dict) -> dict:
     """Fit how much a projection actually varies around its mean.
 
@@ -139,6 +145,38 @@ def fit_variance(df: pd.DataFrame, component_bundle: dict) -> dict:
             slope, intercept = 0.5, 4.0
         out[pos] = {"sd_intercept": float(max(intercept, 1.0)),
                     "sd_slope": float(max(slope, 0.05))}
+    return out
+
+
+def fit_dud(df: pd.DataFrame, component_bundle: dict) -> dict:
+    """How often a player who takes the field scores next to nothing anyway.
+
+    A gamma curve alone puts too little weight on the game where the pass
+    never came, so a floor drawn from it is too high for anyone but a
+    workhorse. Measured here instead: the chance of a dud falls steeply with
+    the size of the projection, so it is fitted per position on its logarithm.
+    """
+    preds = predict_components(df, component_bundle)
+    from .scoring import score_components
+    mean = np.maximum(score_components(preds, "ppr", positions=df["position"]).to_numpy(), 0.2)
+    dud = (df["fantasy_points_ppr"].to_numpy() <= DUD_POINTS).astype(float)
+
+    out = {}
+    for pos in pd.unique(df["position"]):
+        mask = (df["position"] == pos).to_numpy()
+        x = np.column_stack([np.ones(mask.sum()), np.log(mean[mask])])
+        y = dud[mask]
+        if len(y) < 200 or y.sum() < 10:
+            continue
+        b = np.zeros(2)
+        for _ in range(60):
+            p = 1 / (1 + np.exp(-x @ b))
+            w = np.maximum(p * (1 - p), 1e-6)
+            step = np.linalg.solve(x.T @ (x * w[:, None]) + 1e-6 * np.eye(2), x.T @ (y - p))
+            b += step
+            if np.abs(step).max() < 1e-8:
+                break
+        out[str(pos)] = {"intercept": float(b[0]), "slope": float(b[1])}
     return out
 
 

@@ -42,6 +42,32 @@ RETURN_CURVES = {
 # week's report is out, so a designation from Sleeper alone is read as one.
 CARRYOVER = {"out": 0.26, "doubtful": 0.39, "questionable": 0.69}
 
+# Questionable covers everything from a knock to a player who has not
+# practised all week, and what he did in practice splits it: measured on
+# regulars, meaning players taking at least a third of their team's snaps that
+# season, a questionable player who practised fully played about nine times in
+# ten and one who sat out every session about half the time. Both halves of
+# 2022-2025 agree (dnp 0.530 then 0.534, full 0.886 then 0.933, limited 0.730
+# then 0.672), which is why these three are used and nothing else is: a player
+# with no designation played 96% of the time whether he practised or not, and
+# out and doubtful are already decided by the designation itself.
+PRACTICE_PLAY = {
+    ("questionable", "dnp"): 0.53,
+    ("questionable", "limited"): 0.70,
+    ("questionable", "full"): 0.90,
+}
+
+# A player on injured reserve who turns up on a practice report has had his
+# 21-day window opened, which no return curve knows about. Share back on the
+# field within one, two and three weeks of that first session, 2022-2025:
+# about ten times the rate of a reserve player who is not practising.
+WINDOW_RETURN = (0.20, 0.36, 0.45)
+
+# How the injury report spells out what a player did in practice.
+PRACTICE = {"Did Not Participate In Practice": "dnp",
+            "Limited Participation in Practice": "limited",
+            "Full Participation in Practice": "full"}
+
 # Sleeper's designations, as the site names them.
 LABELS = {"IR": "IR", "PUP": "PUP", "Out": "Out", "Doubtful": "Doubtful",
           "Questionable": "Questionable", "Sus": "Suspended", "NA": "Inactive",
@@ -59,8 +85,8 @@ def load(season: int) -> dict:
     """
     import nflreadpy as nfl
 
-    info: dict = {"starters": None, "qb_teams": set(), "reports": {}, "hurt": {},
-                  "reserve": {}, "news": None}
+    info: dict = {"starters": None, "qb_teams": set(), "reports": {}, "practice": {},
+                  "hurt": {}, "reserve": {}, "news": None}
     try:
         dc = nfl.load_depth_charts([season]).to_pandas()
         dc["dt"] = pd.to_datetime(dc["dt"])
@@ -74,6 +100,9 @@ def load(season: int) -> dict:
         rep = inj[inj["report_status"].notna()]
         info["reports"] = {(r.gsis_id, int(r.week)): str(r.report_status).lower()
                            for r in rep.itertuples()}
+        prac = inj[inj["practice_status"].notna()]
+        info["practice"] = {(r.gsis_id, int(r.week)): PRACTICE.get(str(r.practice_status), "none")
+                            for r in prac.itertuples()}
         hurt = inj["report_primary_injury"].fillna(inj["practice_primary_injury"])
         info["hurt"] = dict(zip(inj.loc[hurt.notna(), "gsis_id"], hurt.dropna()))
     except Exception as err:
@@ -161,15 +190,29 @@ def by_week(player_id: str, position: str, team: str, base: float,
     backup_qb = (position == "QB" and starters is not None
                  and team in info["qb_teams"] and player_id not in starters)
     now = current(player_id, from_week, info)
+    practice = info.get("practice", {})
+    on_reserve_now = bool(now and now["kind"] in RESERVE)
+    # A reserve player practising this week has had his 21-day window opened.
+    window = on_reserve_now and practice.get((player_id, from_week)) in ("limited", "full")
     out = {}
     for week in weeks:
         p = min(base, BACKUP_QB_PLAY) if backup_qb else base
-        if now and now["kind"] in RESERVE:
-            p *= return_chance(now, week, from_week)
+        if on_reserve_now:
+            chance = return_chance(now, week, from_week)
+            if window:
+                # News about this player beats an average over hundreds of
+                # reserve spells, and the curve never sees a window open.
+                chance = max(chance, WINDOW_RETURN[min(week - from_week, len(WINDOW_RETURN) - 1)])
+            p *= chance
         elif now and week == from_week:
             p = min(p, CARRYOVER.get(now["kind"], 0.0))
         report = info["reports"].get((player_id, week))
-        if report in DESIGNATION_PLAY_PROB:
+        did = practice.get((player_id, week))
+        if not on_reserve_now and did and (report or "none", did) in PRACTICE_PLAY:
+            # What he did in practice is the sharper signal, so where it is
+            # known it stands in for the designation rather than joining it.
+            p = min(p, PRACTICE_PLAY[(report or "none", did)])
+        elif report in DESIGNATION_PLAY_PROB:
             p = min(p, DESIGNATION_PLAY_PROB[report])
         out[week] = round(p, 3)
     return out

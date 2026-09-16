@@ -155,7 +155,7 @@ pipeline/
   sleeper.py      Sleeper's injury statuses and trending adds
   disagree.py     where the model and the expert consensus rank a player furthest apart
   scorecard.py    grades each archived week against real results and the experts
-  pages.py        ranking, waiver, IR stash, scorecard and model-vs-experts pages
+  pages.py        ranking, waiver, IR stash, start-or-sit, scorecard and model-vs-experts pages
 web/
   index.html, styles.css, app.js, data/projections.json
 ```
