@@ -14,6 +14,18 @@ FTN_FIRST_SEASON = 2022
 
 POSITIONS = ["QB", "RB", "WR", "TE"]
 
+# Kickers and team defences are projected by a different route: see
+# pipeline/kdst.py. Almost nothing they do repeats week to week, so there is
+# no usage to model, and the feature pipeline above deliberately ignores them.
+KDST_POSITIONS = ["K", "DEF"]
+
+# What a kicker or a defence is credited with in a week. The site multiplies
+# these by the league's values, exactly as it does for the skill positions.
+KDST_COMPONENTS = [
+    "fg_0_39", "fg_40_49", "fg_50", "pat", "fg_miss",
+    "sack", "interception_def", "fumble_recovery", "def_td", "safety", "block",
+]
+
 REGULAR_SEASON_WEEKS = 18
 FANTASY_PLAYOFF_WEEKS = (15, 17)
 
@@ -21,6 +33,12 @@ FANTASY_PLAYOFF_WEEKS = (15, 17)
 # season. Before it no player has a game with a game behind it, so they start
 # from earlier seasons instead; see project.early_season_form.
 FULL_FORM_FROM_WEEK = 3
+
+# Sportsbooks price the coming week and usually the one after it, so a forecast
+# may use a real betting line that far out and no further. Backtests are held
+# to the same limit, since a later week's final line is information the live
+# site never has.
+LINES_KNOWN_AHEAD = 1
 
 # ---------------------------------------------------------------------------
 # Scoring
@@ -37,6 +55,9 @@ SCORING_FORMATS = {
         "reception": 1.0, "rec_yd": 0.1, "rec_td": 6.0,
         "fumble_lost": -2.0, "two_point": 2.0,
         "te_premium": 0.0,
+        "fg_0_39": 3.0, "fg_40_49": 4.0, "fg_50": 5.0, "pat": 1.0, "fg_miss": -1.0,
+        "sack": 1.0, "interception_def": 2.0, "fumble_recovery": 2.0,
+        "def_td": 6.0, "safety": 2.0, "block": 2.0,
     },
     "half_ppr": {
         "label": "Half PPR",
@@ -45,6 +66,9 @@ SCORING_FORMATS = {
         "reception": 0.5, "rec_yd": 0.1, "rec_td": 6.0,
         "fumble_lost": -2.0, "two_point": 2.0,
         "te_premium": 0.0,
+        "fg_0_39": 3.0, "fg_40_49": 4.0, "fg_50": 5.0, "pat": 1.0, "fg_miss": -1.0,
+        "sack": 1.0, "interception_def": 2.0, "fumble_recovery": 2.0,
+        "def_td": 6.0, "safety": 2.0, "block": 2.0,
     },
     "standard": {
         "label": "Standard",
@@ -53,8 +77,16 @@ SCORING_FORMATS = {
         "reception": 0.0, "rec_yd": 0.1, "rec_td": 6.0,
         "fumble_lost": -2.0, "two_point": 2.0,
         "te_premium": 0.0,
+        "fg_0_39": 3.0, "fg_40_49": 4.0, "fg_50": 5.0, "pat": 1.0, "fg_miss": -1.0,
+        "sack": 1.0, "interception_def": 2.0, "fumble_recovery": 2.0,
+        "def_td": 6.0, "safety": 2.0, "block": 2.0,
     },
 }
+
+# Points allowed is scored in bands, not per point, so a defence's projection
+# carries the chance of landing in each one and the site applies its league's
+# values. Upper bound of each band, and what it is worth by default.
+PA_TIERS = [(0, 10.0), (6, 7.0), (13, 4.0), (20, 1.0), (27, 0.0), (34, -1.0), (99, -4.0)]
 
 # The stat components the model predicts. Everything downstream is derived.
 STAT_COMPONENTS = [
@@ -71,7 +103,10 @@ STAT_COMPONENTS = [
 # size. Derived from typical starting requirements plus bench depth: in a
 # 12-team league roughly 30 RBs and 36 WRs are rostered, so the 31st RB is the
 # guy you could pick up instead of the player being evaluated.
-REPLACEMENT_RANK_PER_TEAM = {"QB": 1.5, "RB": 2.5, "WR": 3.0, "TE": 1.2}
+REPLACEMENT_RANK_PER_TEAM = {"QB": 1.5, "RB": 2.5, "WR": 3.0, "TE": 1.2,
+                             # One of each starts and almost nobody carries a
+                             # second, so the replacement is the last starter.
+                             "K": 1.0, "DEF": 1.0}
 
 
 def replacement_rank(position: str, league_size: int) -> int:

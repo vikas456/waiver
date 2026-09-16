@@ -10,9 +10,15 @@
 'use strict';
 
 const STATS = ['pass_yd', 'pass_td', 'interception', 'rush_yd', 'rush_td',
-  'reception', 'rec_yd', 'rec_td', 'fumble_lost', 'two_point'];
+  'reception', 'rec_yd', 'rec_td', 'fumble_lost', 'two_point',
+  // Kickers and team defences, scored the same way: a component times what
+  // the league pays for it.
+  'fg_0_39', 'fg_40_49', 'fg_50', 'pat', 'fg_miss',
+  'sack', 'interception_def', 'fumble_recovery', 'def_td', 'safety', 'block'];
 
-const REPLACEMENT_PER_TEAM = { QB: 1.5, RB: 2.5, WR: 3.0, TE: 1.2 };
+// One kicker and one defence start and almost nobody carries a second, so the
+// replacement is simply the last starter.
+const REPLACEMENT_PER_TEAM = { QB: 1.5, RB: 2.5, WR: 3.0, TE: 1.2, K: 1.0, DEF: 1.0 };
 
 const state = {
   data: null,
@@ -38,6 +44,22 @@ function scoreLine(components, weights, position, tePremium) {
   for (const stat of STATS) pts += (components[stat] || 0) * (weights[stat] || 0);
   if (tePremium && position === 'TE') pts += (components.reception || 0) * tePremium;
   return pts;
+}
+
+// Points allowed are scored in bands rather than per point, so a defence
+// carries the chance of landing in each one and the league's own values decide
+// what they are worth.
+function paPoints(odds, weights) {
+  // A connected league brings its own values for the bands; otherwise the
+  // common ones the data file carries.
+  const tiers = (weights && weights.pa_tiers) || state.data.meta.paTiers;
+  if (!odds || !tiers) return 0;
+  return odds.reduce((sum, p, i) => sum + p * (tiers[i] ? tiers[i][1] : 0), 0);
+}
+
+// One week's points for anyone: the stat line, plus the bands for a defence.
+function weekPoints(wk, weights, position, tePremium) {
+  return scoreLine(wk.c, weights, position, tePremium) + paPoints(wk.pa, weights);
 }
 
 /* -- Random draws -------------------------------------------------------- */
@@ -106,7 +128,7 @@ function meanPpg(player, from, to) {
   if (!weeks.length) return 0;
   let total = 0;
   for (const wk of weeks) {
-    total += scoreLine(wk.c, weights, player.position, state.tePremium) * playChance(player, wk);
+    total += weekPoints(wk, weights, player.position, state.tePremium) * playChance(player, wk);
   }
   return total / weeks.length;
 }
@@ -136,11 +158,11 @@ function simulate(player, from, to, draws = 3000) {
   if (single) draws = 6000;
 
   const means = weeks.map(wk =>
-    Math.max(scoreLine(wk.c, weights, player.position, state.tePremium), 0.05));
+    Math.max(weekPoints(wk, weights, player.position, state.tePremium), 0.05));
   // Spread was calibrated in PPR, so it is rescaled when the format changes
   // the size of the numbers it is describing.
   const pprMeans = weeks.map(wk =>
-    Math.max(scoreLine(wk.c, state.data.meta.scoringFormats.ppr, player.position, 0), 0.05));
+    Math.max(weekPoints(wk, state.data.meta.scoringFormats.ppr, player.position, 0), 0.05));
   const sds = weeks.map((wk, i) => Math.max(wk.sd * (means[i] / pprMeans[i]), 0.5));
   // Some of the games he plays are duds: the target never comes, the carry
   // goes nowhere. They happen far more often than one smooth curve allows, so
@@ -278,8 +300,8 @@ function rank(players, from, to) {
     const sim = simulateCached(p, from, to);
     const weeks = weeksInRange(p, from, to);
     const n = weeks.length || 1;
-    const pts = weeks.map(w => scoreLine(w.c, fmtWeights, p.position, state.tePremium));
-    const pprMean = weeks.reduce((a, w) => a + scoreLine(w.c, pprWeights, p.position, 0), 0) / n;
+    const pts = weeks.map(w => weekPoints(w, fmtWeights, p.position, state.tePremium));
+    const pprMean = weeks.reduce((a, w) => a + weekPoints(w, pprWeights, p.position, 0), 0) / n;
     // Points per game if he plays every game, and the exact expectation once
     // the chance of missing each one is counted. Ranking on the expectation
     // rather than the simulation's estimate of it keeps a near tie from
@@ -303,7 +325,9 @@ function rank(players, from, to) {
 
   // Two players can share a surname, and "against Moreau and Moreau" is the
   // kind of sentence that makes a reader stop trusting everything above it.
-  const surnames = rows.map(r => lastName(r.player.name));
+  // A team defence keeps its whole name: nobody calls it "D/ST".
+  const surnames = rows.map(r => (r.player.position === 'DEF' ? r.player.name
+    : lastName(r.player.name)));
   rows.forEach((r, i) => {
     const clash = surnames.filter(n => n === surnames[i]).length > 1;
     r.displayName = clash ? r.player.name : surnames[i];
@@ -354,6 +378,9 @@ const PHRASES = {
   prior: ['profiles better for his role', 'profiles worse for his role'],
   position: ['plays a position where a player like him is harder to replace',
     'plays a position where a player like him is easier to replace'],
+  // A kicker and a defence are judged almost entirely on the game in front of
+  // them, so their factors say so in those words.
+  matchup: ['has the better run of games', 'has the harder run of games'],
 };
 // Older data files call the sample-size group "availability".
 PHRASES.availability = PHRASES.sample;
@@ -361,13 +388,19 @@ PHRASES.availability = PHRASES.sample;
 // Names for the factors the data file's labels do not cover, or misname.
 const DRIVER_NAMES = {
   missed_games: 'Missed games', position: 'Position scarcity',
-  sample: 'Sample size', availability: 'Sample size',
+  sample: 'Sample size', availability: 'Sample size', matchup: 'Matchup',
 };
 
 // Ends a sentence on a name without doubling the full stop of a Jr. or Sr.
 const stop = name => (name.endsWith('.') ? name : `${name}.`);
 
 const ORDINAL = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
+
+// A team defence is an it; everyone else here is a he. Saying "he has the
+// better run of games" about the Ravens is the kind of small wrongness that
+// makes a whole explanation look automated.
+const pronoun = row => (row.player.position === 'DEF'
+  ? { they: 'it', their: 'its', They: 'It' } : { they: 'he', their: 'his', They: 'He' });
 
 // Real names carry suffixes, and "Jr. ranks first" is not a sentence.
 function lastName(name) {
@@ -443,6 +476,7 @@ function reasoning(row, position) {
     return `${name} ranks first, ahead of ${them}, who has no game ${range}.`;
   }
   const { up, down } = splitDrivers(row.rel);
+  const { they, their } = pronoun(row);
   const parts = [];
   const say = ([g, v]) => phraseFor(g, row, v > 0);
   // The reasons always point the way the ranking does: the top pick's case
@@ -459,12 +493,12 @@ function reasoning(row, position) {
   } else {
     const where = position === 1 ? `first, ahead of ${them}`
       : `${ORDINAL[position] || `number ${position}`}, behind ${them}`;
-    parts.push(`${name} ranks ${where}, mainly because he ${say(lead[0])}` +
+    parts.push(`${name} ranks ${where}, mainly because ${they} ${say(lead[0])}` +
       (lead[1] ? `, and ${say(lead[1])}.` : '.'));
     if (concede.length) {
       parts.push(position === 1
-        ? `That holds even though he ${say(concede[0])}.`
-        : `In his favour, he ${say(concede[0])}, but not by enough to close the gap.`);
+        ? `That holds even though ${they} ${say(concede[0])}.`
+        : `In ${their} favour, ${they} ${say(concede[0])}, but not by enough to close the gap.`);
     }
   }
 
@@ -513,8 +547,9 @@ function headline(rows) {
       title: `Pick up ${stop(top.player.name)}`,
       // Fewer points but still first is the case value over replacement exists for.
       sub: gap < 0
-        ? `He projects ${Math.abs(gap).toFixed(1)} fewer points a game than ${second.player.name}, ` +
-          `but ${top.player.position} is the thinner position in your league, so he replaces a worse player.`
+        ? `${pronoun(top).They} projects ${Math.abs(gap).toFixed(1)} fewer points a game than ` +
+          `${second.player.name}, but ${top.player.position} is the thinner position in your league, ` +
+          `so ${pronoun(top).they} replaces a worse player.`
         : `About ${gap.toFixed(1)} more points a game than ${stop(second.player.name)}`,
     };
   }
@@ -540,7 +575,7 @@ function startHeadline(rows) {
       sub: `${second.player.name} has no game in ${week}.` };
   } else {
     const odds = beats(top, second);
-    const often = `${lastName(top.player.name)} outscores ${second.player.name} in ` +
+    const often = `${top.displayName || lastName(top.player.name)} outscores ${second.player.name} in ` +
       `${Math.round(odds * 100)}% of simulated ${week} games`;
     answer = odds < 0.55
       ? { tone: 'warn', label: 'Close call', title: `${top.player.name}, narrowly over ${stop(second.player.name)}`,
@@ -563,7 +598,8 @@ function startHeadline(rows) {
   }
   const inj = top.player.injury;
   if (inj && top.chance < 1) {
-    extra.push(`${lastName(top.player.name)} is listed as ${inj.status.toLowerCase()}, so check he is active before kickoff.`);
+    extra.push(`${top.displayName || lastName(top.player.name)} is listed as ` +
+      `${inj.status.toLowerCase()}, so check he is active before kickoff.`);
   }
   if (extra.length) answer.sub += ` ${extra.join(' ')}`;
   return answer;
@@ -662,6 +698,17 @@ function renderStatLine(row) {
   const items = pill ? [`<span class="pill ${pill.cls}">${pill.text}</span>`] : [];
   for (const mark of row.marks || []) items.push(`<span class="pill neutral">${mark}</span>`);
   if (startSit() && row.draws) items.push(`Floor ${row.p10.toFixed(1)}`, `Ceiling ${row.p90.toFixed(1)}`);
+  if (p.position === 'K' || p.position === 'DEF') {
+    const weeks = weeksInRange(p, state.fromWeek, state.toWeek);
+    const per = key => weeks.reduce((a, w) => a + (w.c[key] || 0), 0) / (weeks.length || 1);
+    items.push(...(p.position === 'K'
+      ? [`Field goals ${(per('fg_0_39') + per('fg_40_49') + per('fg_50')).toFixed(1)} a game`,
+         `Extra points ${per('pat').toFixed(1)}`]
+      : [`Sacks ${per('sack').toFixed(1)} a game`,
+         `Takeaways ${(per('interception_def') + per('fumble_recovery')).toFixed(1)}`,
+         `Shutout odds ${pct(weeks.reduce((a, w) => a + ((w.pa || [0])[0] || 0), 0) / (weeks.length || 1))}`]));
+    return `<p class="statline">${items.map(i => `<span>${i}</span>`).join('')}</p>`;
+  }
   items.push(`Snap share ${pct(s.snapShare)}`);
   if (p.position === 'RB') {
     items.push(`Carry share ${pct(s.carryShare)}`, `Goal-line share ${pct(s.glShare)}`);
@@ -760,6 +807,13 @@ function render() {
     : `Expected points per game over ${span}, counting the ` +
       'chance he misses a game. Value over replacement compares ' +
       'each player with the best free agent at his position in a league your size.';
+  // These two are barely predictable, and saying so matters more than the
+  // ranking does.
+  if (state.picked.some(p => p.position === 'K' || p.position === 'DEF')) {
+    $('#footnote').textContent += ' Kickers and team defences are close to a coin flip: putting two ' +
+      'of them in the right order came out at 58% and 57% in testing, against 86% at the positions ' +
+      'where usage can be measured. They are projected from the game itself rather than from usage.';
+  }
   if (n < 2) return;
 
   const answer = headline(rows);
@@ -870,6 +924,11 @@ function search(query) {
     .slice(0, 8);
 }
 
+// A team defence is known by its team, not by a person's initials.
+function badgeText(p) {
+  return p.position === 'DEF' ? p.team : initials(p.name);
+}
+
 function initials(name) {
   return (name[0] + lastName(name)[0]).replace(/[^A-Za-z]/g, '').toUpperCase();
 }
@@ -877,7 +936,7 @@ function initials(name) {
 // Initials for everyone: free photos cover too few players to look even, and
 // the league's own headshots are not licensed for a site with ads.
 function avatar(p, size = '') {
-  return `<span class="avatar ${size}" aria-hidden="true">${initials(p.name)}</span>`;
+  return `<span class="avatar ${size}" aria-hidden="true">${esc(badgeText(p))}</span>`;
 }
 
 // In a connected league, whether a player can be picked up at all.
@@ -941,7 +1000,7 @@ const SLOT_SHARE = {
   FLEX: { RB: 0.45, WR: 0.45, TE: 0.1 }, WRRB_FLEX: { RB: 0.5, WR: 0.5 },
   REC_FLEX: { WR: 0.8, TE: 0.2 }, SUPER_FLEX: { QB: 0.9, RB: 0.05, WR: 0.05 },
 };
-const DEFAULT_LINEUP = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX'];
+const DEFAULT_LINEUP = ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'K', 'DEF'];
 
 async function sleeperGet(path) {
   const res = await fetch(`${SLEEPER}${path}`);
@@ -977,6 +1036,18 @@ function leagueWeights(s) {
     rush_yd: n('rush_yd', 0.1), rush_td: n('rush_td', 6), reception: n('rec', 0),
     rec_yd: n('rec_yd', 0.1), rec_td: n('rec_td', 6), fumble_lost: n('fum_lost', -2),
     two_point: n('rec_2pt', n('rush_2pt', 2)),
+    // Kickers: Sleeper splits anything under 40 yards into three buckets where
+    // the projection keeps one, so those three are averaged.
+    fg_0_39: (n('fgm_0_19', 3) + n('fgm_20_29', 3) + n('fgm_30_39', 3)) / 3,
+    fg_40_49: n('fgm_40_49', 4), fg_50: n('fgm_50p', 5),
+    pat: n('xpm', 1), fg_miss: n('fgmiss', -1),
+    // Defences. A return touchdown is counted with the rest.
+    sack: n('sack', 1), interception_def: n('int', 2), fumble_recovery: n('fum_rec', 2),
+    def_td: n('def_td', 6), safety: n('safe', 2), block: n('blk_kick', 2),
+    pa_tiers: [[0, n('pts_allow_0', 10)], [6, n('pts_allow_1_6', 7)],
+      [13, n('pts_allow_7_13', 4)], [20, n('pts_allow_14_20', 1)],
+      [27, n('pts_allow_21_27', 0)], [34, n('pts_allow_28_34', -1)],
+      [99, n('pts_allow_35p', -4)]],
   };
 }
 
@@ -1107,7 +1178,7 @@ function faabBid(gain, left) {
 // Who can fill each lineup slot, in the order slots are filled: dedicated
 // slots first, then the flexible ones from the narrowest to the widest.
 const SLOT_ELIGIBLE = {
-  QB: ['QB'], RB: ['RB'], WR: ['WR'], TE: ['TE'],
+  QB: ['QB'], RB: ['RB'], WR: ['WR'], TE: ['TE'], K: ['K'], DEF: ['DEF'],
   REC_FLEX: ['WR', 'TE'], WRRB_FLEX: ['RB', 'WR'], FLEX: ['RB', 'WR', 'TE'],
   SUPER_FLEX: ['QB', 'RB', 'WR', 'TE'],
 };
@@ -1171,7 +1242,7 @@ function leagueAdvice() {
 }
 
 const SLOT_LABELS = { QB: 'QB', RB: 'RB', WR: 'WR', TE: 'TE', REC_FLEX: 'W/T',
-  WRRB_FLEX: 'W/R', FLEX: 'FLEX', SUPER_FLEX: 'SUPERFLEX' };
+  WRRB_FLEX: 'W/R', FLEX: 'FLEX', SUPER_FLEX: 'SUPERFLEX', K: 'K', DEF: 'D/ST' };
 
 // The best lineup this roster can field, slot by slot, with whoever is left
 // over on the bench. The same fill as lineupPoints, but it keeps the

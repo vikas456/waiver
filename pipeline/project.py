@@ -22,21 +22,14 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from . import availability, explain, features, market, simulate, sleeper, train
-from .config import (CURRENT_SEASON, FULL_FORM_FROM_WEEK, MARKET_WEIGHT,
-                     MARKET_WEIGHT_EARLY, POSITIONS, ROLLING_WINDOWS,
+from . import availability, explain, features, kdst, market, simulate, sleeper, train
+from .config import (CURRENT_SEASON, FULL_FORM_FROM_WEEK, LINES_KNOWN_AHEAD, MARKET_WEIGHT,
+                     MARKET_WEIGHT_EARLY, PA_TIERS, POSITIONS, ROLLING_WINDOWS,
                      SCORING_FORMATS, STABILISATION_GAMES, STAT_COMPONENTS,
                      TRAIN_SEASONS)
 from .scoring import score_components
 
 OUT_PATH = Path("web/data/projections.json")
-
-
-# Sportsbooks price the coming week and usually the one after it, so a
-# forecast may use a real line that far out and no further. Backtests are held
-# to the same limit, since the final line for a later week is information the
-# live site never has.
-LINES_KNOWN_AHEAD = 1
 
 
 def early_season_form(rows: pd.DataFrame, rosters: pd.DataFrame, season: int,
@@ -367,6 +360,27 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
                         for g in drivers.columns if abs(drivers[g].iloc[i]) > 0.01},
         })
 
+    # Kickers and team defences, which are projected a different way because
+    # there is no usage to model: see pipeline/kdst.py.
+    kd_dud: dict = {}
+    if source == "nflverse":
+        try:
+            kd_ranks = market.kdst_ranks_before(pd.Timestamp.now())
+        except Exception as err:
+            print(f"  kicker and defence consensus unavailable ({type(err).__name__}); "
+                  "both fall back to the betting line alone")
+            kd_ranks = {}
+        try:
+            built = kdst.build(season, from_week, through, data["schedule"], TRAIN_SEASONS,
+                               ranks=kd_ranks, avail=avail)
+            kd_dud = built["dudOdds"]
+            players.update({u["id"]: u for u in built["units"]})
+            if verbose:
+                print(f"  kickers and defences: {len(built['units'])} units")
+        except Exception as err:
+            print(f"  kickers and defences unavailable ({type(err).__name__}); "
+                  "the site keeps the skill positions alone")
+
     # Bye weeks, so a zero in the range is never hidden inside an average.
     for pid, p in players.items():
         weeks_present = {w["w"] for w in p["weeks"]}
@@ -401,7 +415,11 @@ def build(data: dict, from_week: int, season: int = CURRENT_SEASON,
             "driverLabels": explain.DRIVER_LABELS,
             # Per position, the chance a game is a dud, as intercept + slope on
             # the log of the projected points. The site's floor needs it.
-            "dudOdds": dud_odds,
+            "dudOdds": dud_odds | kd_dud,
+            # Points allowed are scored in bands, and every league values them
+            # differently, so a defence carries the odds of each band and the
+            # site applies its own values.
+            "paTiers": PA_TIERS,
         },
         "players": list(players.values()),
     }

@@ -23,13 +23,21 @@ from datetime import datetime
 from pathlib import Path
 
 from . import disagree, sleeper
-from .config import POSITIONS, REPLACEMENT_RANK_PER_TEAM
+from .config import KDST_POSITIONS, PA_TIERS, POSITIONS, REPLACEMENT_RANK_PER_TEAM
 
 SITE = "https://fantasywaiverpicks.com"
 LEAGUE_SIZE = 12
 # How deep each ranking goes: roughly everyone worth a roster spot.
-DEPTH = {"QB": 32, "RB": 60, "WR": 72, "TE": 32}
-NAMES = {"QB": "quarterback", "RB": "running back", "WR": "wide receiver", "TE": "tight end"}
+DEPTH = {"QB": 32, "RB": 60, "WR": 72, "TE": 32, "K": 32, "DEF": 32}
+# Rankings and navigation cover kickers and team defences too; the pages that
+# grade the model against the experts do not, because those two are projected
+# a different way (see pipeline/kdst.py).
+ALL_POSITIONS = POSITIONS + KDST_POSITIONS
+NAMES = {"QB": "quarterback", "RB": "running back", "WR": "wide receiver", "TE": "tight end",
+         "K": "kicker", "DEF": "team defence"}
+# What people actually type into a search box. "DEF rankings" is nobody's
+# search; "D/ST rankings" is.
+SEARCH_LABEL = {"QB": "QB", "RB": "RB", "WR": "WR", "TE": "TE", "K": "kicker", "DEF": "D/ST"}
 ANALYTICS = re.compile(r"<!-- Cloudflare Web Analytics -->.*?<!-- End Cloudflare Web Analytics -->", re.S)
 
 FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
@@ -66,14 +74,22 @@ e = html.escape
 # Numbers, computed exactly as the site computes them
 # ---------------------------------------------------------------------------
 
+def week_points(week: dict, weights: dict) -> float:
+    """One week's points: the stat line, plus the bands a defence's points
+    allowed fall into. Mirrors weekPoints in web/app.js."""
+    pts = sum(v * weights.get(k, 0) for k, v in week["c"].items())
+    if week.get("pa"):
+        pts += sum(p * value for p, (_, value) in zip(week["pa"], PA_TIERS))
+    return pts
+
+
 def expected_ppg(player: dict, weights: dict) -> float:
     """Points per scheduled game with missed games as zero. Mirrors meanPpg
     in web/app.js; keep the two in step."""
     weeks = player["weeks"]
     if not weeks:
         return 0.0
-    total = sum(sum(v * weights.get(k, 0) for k, v in w["c"].items())
-                * w.get("p", player["playProb"]) for w in weeks)
+    total = sum(week_points(w, weights) * w.get("p", player["playProb"]) for w in weeks)
     return total / len(weeks)
 
 
@@ -82,7 +98,7 @@ def when_playing(player: dict, weights: dict) -> float:
     weeks = player["weeks"]
     if not weeks:
         return 0.0
-    return sum(sum(v * weights.get(k, 0) for k, v in w["c"].items()) for w in weeks) / len(weeks)
+    return sum(week_points(w, weights) for w in weeks) / len(weeks)
 
 
 def replacement_levels(players: list[dict], ppg: dict) -> dict:
@@ -168,9 +184,9 @@ def _shell(meta: dict, path: str, title: str, description: str, body: str,
 """
 
 
-def _position_nav(current: str | None) -> str:
+def _position_nav(current: str | None, positions: list[str] | None = None) -> str:
     links = []
-    for pos in POSITIONS:
+    for pos in positions or ALL_POSITIONS:
         here = ' aria-current="page"' if pos == current else ""
         links.append(f'<a href="/rankings/{pos.lower()}/"{here}>{pos}</a>')
     return f'<nav class="board-nav" aria-label="Rankings by position">{"".join(links)}</nav>'
@@ -251,22 +267,31 @@ def _breadcrumbs(*trail: tuple[str, str]) -> dict:
 
 
 def position_page(meta: dict, pos: str, ranked: list[dict], ppg: dict, slug: dict,
-                  analytics: str) -> str:
+                  analytics: str, positions: list[str] | None = None) -> str:
     name = NAMES[pos]
     weeks = f"weeks {meta['fromWeek']}–{meta['throughWeek']}"
-    title = f"Rest-of-season {pos} rankings for week {meta['fromWeek']}, {meta['season']} — Waiver"
+    title = (f"Rest-of-season {SEARCH_LABEL[pos]} rankings for week {meta['fromWeek']}, "
+             f"{meta['season']} — Waiver")
     description = (f"Fantasy football rest-of-season {name} rankings for {weeks} in full PPR, "
                    "from an AI model tested against expert rankings. Updated weekly.")
     rows = "\n".join(
         f'      <tr><td class="num">{i}</td><td>{_player_link(p, slug)}{_tag(p)}</td><td>{e(p["team"])}</td>'
         f'<td class="num">{ppg[p["id"]]:.1f}</td><td><a href="/?p={e(p["id"])}">Compare</a></td></tr>'
         for i, p in enumerate(ranked, start=1))
+    # These two positions deserve a warning rather than a ranking that looks
+    # as authoritative as the others.
+    caveat = ('\n    <p class="lede"><span class="pill warn">Close to a coin flip</span> '
+              f'Tested on the 2024 and 2025 seasons, putting two {NAMES[pos]}s in the right order for '
+              'the next four games came out at 58% for kickers and 57% for defences, against 86% at the '
+              'positions where usage can be measured. There is no usage to measure here: both are '
+              'projected from what the betting market expects of the game, their own season, and expert '
+              'consensus. Use this to break a tie, not to plan around.</p>') if pos in KDST_POSITIONS else ""
     body = f"""  <section class="board">
     <h1>Rest-of-season {name} rankings</h1>
     <p class="lede">Every {name} worth a roster spot, ranked by the points per game
       Waiver projects for {weeks} in full PPR, with missed games counted as zero. To use
-      your own scoring or league size, <a href="/">compare players in the tool</a>.</p>
-    {_position_nav(pos)}
+      your own scoring or league size, <a href="/">compare players in the tool</a>.</p>{caveat}
+    {_position_nav(pos, positions)}
     <div class="board-table-wrap">
     <table class="board-table">
       <thead><tr><th scope="col" class="num">Rank</th><th scope="col">Player</th><th scope="col">Team</th><th scope="col" class="num">Points per game</th><th scope="col"><span class="visually-hidden">Compare</span></th></tr></thead>
@@ -288,7 +313,7 @@ def hub_page(meta: dict, by_pos: dict[str, list[dict]], analytics: str) -> str:
     cards = "\n".join(
         f'      <li><a href="/rankings/{pos.lower()}/">{NAMES[pos].capitalize()} rankings</a>'
         f'<span>{e(", ".join(p["name"] for p in by_pos[pos][:3]))}</span></li>'
-        for pos in POSITIONS if by_pos.get(pos))
+        for pos in ALL_POSITIONS if by_pos.get(pos))
     body = f"""  <section class="board">
     <h1>Rest-of-season fantasy football rankings</h1>
     <p class="lede">Projected points per game for weeks {meta['fromWeek']}–{meta['throughWeek']}
@@ -327,6 +352,62 @@ def _status_note(p: dict) -> str:
     return f'<p class="lede"><span class="pill bad">{e(inj["status"])}</span> {e(text)}</p>'
 
 
+def _kdst_player_page(meta: dict, p: dict, pos: str, rank: int, figure_rows: str,
+                      weights: dict, analytics: str) -> str:
+    """A kicker's or a defence's page.
+
+    Shorter than a skill player's on purpose: there is no usage to show, and
+    the honest thing to say is how little anyone knows week to week.
+    """
+    name, weeks = p["name"], f"weeks {meta['fromWeek']}-{meta['throughWeek']}"
+    kicker = pos == "K"
+    title = f"{name} fantasy outlook, week {meta['fromWeek']} — Waiver"
+    description = (f"{name} projects {expected_ppg(p, weights):.1f} points per game over {weeks}, "
+                   f"{pos}{rank} in Waiver's rankings. Updated weekly.")
+
+    def row(w: dict) -> str:
+        return (f'      <tr><td class="num">{w["w"]}</td><td>{e(w["opp"])}</td>'
+                f'<td class="num">{week_points(w, weights):.1f}</td></tr>')
+    schedule = "\n".join(row(w) for w in p["weeks"])
+    badge = f'<span class="avatar" aria-hidden="true">{e(_initials(name) if kicker else p["team"])}</span>'
+    # A defence is a team, not a person.
+    what = ("how much his offence is expected to score, since extra points follow it and field goals "
+            "come from drives that stall, nudged by his own season and blended with expert consensus"
+            ) if kicker else (
+            "how much the offence it faces is expected to score, which drives sacks, takeaways and the "
+            "points it gives up, nudged by its own season and blended with expert consensus")
+    body = f"""  <article class="board">
+    <div class="player-head">{badge}
+      <div><h1>{e(name)} outlook</h1>
+      <p class="meta">{e(pos if kicker else "Team defence")} · {e(p["team"])} · {e(pos)}{rank} in the rankings</p></div>
+    </div>
+    {_status_note(p)}
+    <dl class="figures">
+      {figure_rows}
+    </dl>
+    <p class="lede">A {NAMES[pos]} is projected from {what}. Sportsbooks price only the coming week or
+      two, so every week after that takes {"his" if kicker else "its"} team's typical game and they all
+      read alike until the lines are posted.</p>
+    <div class="board-table-wrap">
+    <table class="board-table">
+      <thead><tr><th scope="col" class="num">Week</th><th scope="col">Opponent</th><th scope="col" class="num">Projected points</th></tr></thead>
+      <tbody>
+{schedule}
+      </tbody>
+    </table>
+    </div>
+    <p><a class="share" href="/?p={e(p["id"])}">Compare {e(name)} with another {NAMES[pos]}</a></p>
+    <p><a href="/rankings/{pos.lower()}/">See all {NAMES[pos]} rankings</a></p>
+    <p class="footnote">Kickers and team defences are close to unpredictable: over the 2024 and 2025
+      seasons, ordering two of them correctly for the next four games came out at 58% for kickers and
+      57% for defences, against 86% for the positions where usage can be measured. Treat these
+      rankings as a tie-breaker, not a plan.</p>
+  </article>"""
+    return _shell(meta, f"/players/{{slug}}/", title, description, body, analytics,
+                  [_breadcrumbs(("Rankings", "/rankings/"), (f"{pos} rankings", f"/rankings/{pos.lower()}/"),
+                                (name, "/players/{slug}/"))])
+
+
 def player_page(meta: dict, p: dict, ppg: dict, rank: int, vor: float, weights: dict,
                 analytics: str) -> str:
     pos, name = p["position"], p["name"]
@@ -342,6 +423,18 @@ def player_page(meta: dict, p: dict, ppg: dict, rank: int, vor: float, weights: 
     if inj:
         figures.append(("Points in games he plays", f"{when_playing(p, weights):.1f}"))
     figures.append(("Over replacement, 12 teams", _signed(vor)))
+    if pos in KDST_POSITIONS:
+        per = lambda key: sum(w["c"].get(key, 0) for w in p["weeks"]) / (len(p["weeks"]) or 1)
+        if pos == "K":
+            figures += [("Field goals a game", f"{per('fg_0_39') + per('fg_40_49') + per('fg_50'):.1f}"),
+                        ("Extra points a game", f"{per('pat'):.1f}")]
+        else:
+            figures += [("Sacks a game", f"{per('sack'):.1f}"),
+                        ("Takeaways a game", f"{per('interception_def') + per('fumble_recovery'):.1f}"),
+                        ("Shutout odds", pct(sum((w.get("pa") or [0])[0] for w in p["weeks"])
+                                             / (len(p["weeks"]) or 1)))]
+        figure_rows = "".join(f"<div><dt>{label}</dt><dd>{value}</dd></div>" for label, value in figures)
+        return _kdst_player_page(meta, p, pos, rank, figure_rows, weights, analytics)
     figures.append(("Snap share", pct(s.get("snapShare"))))
     if pos == "RB":
         figures += [("Carry share", pct(s.get("carryShare"))), ("Goal-line share", pct(s.get("glShare")))]
@@ -350,7 +443,7 @@ def player_page(meta: dict, p: dict, ppg: dict, rank: int, vor: float, weights: 
     figure_rows = "".join(f"<div><dt>{label}</dt><dd>{value}</dd></div>" for label, value in figures)
 
     def week_row(w: dict) -> str:
-        pts = sum(v * weights.get(k, 0) for k, v in w["c"].items())
+        pts = week_points(w, weights)
         prob = w.get("p", p["playProb"])
         return (f'      <tr><td class="num">{w["w"]}</td><td>{e(w["opp"])}</td>'
                 f'<td class="num">{round(prob * 100)}%</td><td class="num">{pts:.1f}</td>'
@@ -563,7 +656,7 @@ def week_entry(player: dict, weights: dict, week: int, dud_odds: dict) -> dict |
         return None
     from scipy.stats import gamma
 
-    if_plays = sum(v * weights.get(k, 0) for k, v in wk["c"].items())
+    if_plays = week_points(wk, weights)
     chance = wk.get("p", player["playProb"])
     mean = max(if_plays, 0.05)
     sd = max(wk.get("sd", 4.0), 0.5)
@@ -684,7 +777,7 @@ def start_sit_hub(meta: dict, table: dict[str, list[dict]], pages: set[str], slu
     description = (f"Who to start and who to sit in week {week}, with a projection, a floor and a "
                    "ceiling for every player, from an AI model tested against expert rankings.")
     sections = []
-    for pos in POSITIONS:
+    for pos in ALL_POSITIONS:
         rows = [r for r in table.get(pos, []) if r["player"]["id"] in pages][:15]
         if not rows:
             continue
@@ -907,7 +1000,7 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     levels = replacement_levels(players, ppg)
     by_pos = {pos: sorted((p for p in players if p["position"] == pos),
                           key=lambda p: ppg[p["id"]], reverse=True)[:DEPTH[pos]]
-              for pos in POSITIONS}
+              for pos in ALL_POSITIONS}
 
     by_id = {p["id"]: p for p in players}
     trending = [(by_id[gsis], n) for gsis, n in adds if gsis in by_id]
@@ -919,18 +1012,23 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     # A player on reserve falls down the rankings, but people still search his
     # name, so anyone who would rank when healthy keeps his page.
     healthy = {p["id"]: when_playing(p, weights) for p in players}
-    for pos in POSITIONS:
+    for pos in ALL_POSITIONS:
         pool = sorted((p for p in players if p["position"] == pos), key=lambda p: healthy[p["id"]], reverse=True)
         featured.update({p["id"]: p for p in pool[:DEPTH[pos]] if p.get("injury")})
     slug = slugs(list(featured.values()))
     pos_rank = {}
-    for pos in POSITIONS:
+    for pos in ALL_POSITIONS:
         ordered = sorted((p for p in players if p["position"] == pos), key=lambda p: ppg[p["id"]], reverse=True)
         pos_rank.update({p["id"]: i for i, p in enumerate(ordered, start=1)})
 
+    # A position with nobody in it gets no page: early in a season, or in a
+    # build where kickers and defences could not be loaded, an empty table is
+    # worse than no page at all.
+    ranked_positions = [pos for pos in ALL_POSITIONS if by_pos.get(pos)]
     pages = {"rankings/index.html": hub_page(meta, by_pos, analytics)}
-    for pos in POSITIONS:
-        pages[f"rankings/{pos.lower()}/index.html"] = position_page(meta, pos, by_pos[pos], ppg, slug, analytics)
+    for pos in ranked_positions:
+        pages[f"rankings/{pos.lower()}/index.html"] = position_page(
+            meta, pos, by_pos[pos], ppg, slug, analytics, ranked_positions)
     if trending:
         pages["waiver-wire/index.html"] = waiver_page(meta, trending, ppg, levels, slug, analytics)
     players_by_pos = {p["id"]: p["position"] for p in players}
@@ -981,7 +1079,7 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
 
     # A waiver page from an earlier build stays listed if this week's adds
     # could not be fetched, so the sitemap never drops a live page.
-    listed = (["/", "/waiver-wire/", "/rankings/"] + [f"/rankings/{p.lower()}/" for p in POSITIONS]
+    listed = (["/", "/waiver-wire/", "/rankings/"] + [f"/rankings/{p.lower()}/" for p in ranked_positions]
               + ["/ir-stash/", "/start-sit/", "/model-vs-experts/", "/scorecard/"]
               + [f"/start-sit/{s}/" for s in sorted(start_sit_slugs)]
               + [f"/players/{s}/" for s in sorted(slug.values())] + STATIC_PATHS)
