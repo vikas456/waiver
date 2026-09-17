@@ -52,6 +52,8 @@ FOOTER = """<footer class="site-footer" aria-label="More from Waiver">
   <a href="/rankings/te/">TE</a>
   <a href="/model-vs-experts/">Model vs experts</a>
   <a href="/scorecard/">Scorecard</a>
+  <a href="/reports/">Reports</a>
+  <a href="/players/">Players</a>
   <a href="/terms/">Terms</a>
   <a href="/privacy/">Privacy</a>
 </footer>"""
@@ -134,7 +136,8 @@ def _signed(v: float) -> str:
 
 
 def _shell(meta: dict, path: str, title: str, description: str, body: str,
-           analytics: str, data: list[dict] | None = None) -> str:
+           analytics: str, data: list[dict] | None = None, canonical: str | None = None,
+           image: str | None = None) -> str:
     url = SITE + path
     generated = datetime.fromisoformat(meta["generated"])
     stamp = f"Season {meta['season']} · week {meta['fromWeek']} · updated {generated:%b} {generated.day}"
@@ -148,12 +151,12 @@ def _shell(meta: dict, path: str, title: str, description: str, body: str,
 <meta name="theme-color" content="#0e1211">
 <title>{e(title)}</title>
 <meta name="description" content="{e(description)}">
-<link rel="canonical" href="{url}">
+<link rel="canonical" href="{SITE + (canonical or path)}">
 <meta property="og:type" content="website">
 <meta property="og:url" content="{url}">
 <meta property="og:title" content="{e(title)}">
 <meta property="og:description" content="{e(description)}">
-<meta property="og:image" content="{SITE}/og-image.png">
+<meta property="og:image" content="{SITE}{image or "/og-image.png"}">
 <meta property="og:image:alt" content="Waiver: who should you pick up? Fantasy football waiver picks from an AI model.">
 <meta name="google-adsense-account" content="{ADSENSE_CLIENT}">
 <meta name="twitter:card" content="summary_large_image">
@@ -482,7 +485,8 @@ def player_page(meta: dict, p: dict, ppg: dict, rank: int, vor: float, weights: 
 
 
 def waiver_page(meta: dict, rows: list[tuple[dict, int]], ppg: dict, levels: dict,
-                slug: dict, analytics: str) -> str:
+                slug: dict, analytics: str, path: str = "/waiver-wire/",
+                canonical: str | None = None) -> str:
     title = f"Waiver wire pickups for week {meta['fromWeek']}, {meta['season']} — Waiver"
     description = (f"The most-added fantasy football players for week {meta['fromWeek']}, ranked by "
                    "how much each is projected to help your team for the rest of the season.")
@@ -510,9 +514,9 @@ def waiver_page(meta: dict, rows: list[tuple[dict, int]], ppg: dict, levels: dic
     </table>
     </div>
   </section>"""
-    return _shell(meta, "/waiver-wire/", title, description, body, analytics,
+    return _shell(meta, path, title, description, body, analytics,
                   [_item_list(title, [p for p, _ in ranked], slug),
-                   _breadcrumbs(("Waiver pickups", "/waiver-wire/"))])
+                   _breadcrumbs(("Waiver pickups", "/waiver-wire/"))], canonical=canonical)
 
 
 # Lists a stash can hold a player through. Anyone else missing time is week to
@@ -719,7 +723,8 @@ def _verdict_text(row: dict, meta: dict) -> str:
             f"{row['ceiling']:.1f}.")
 
 
-def start_sit_page(meta: dict, row: dict, peers: list[dict], slug: dict, analytics: str) -> str:
+def start_sit_page(meta: dict, row: dict, peers: list[dict], slug: dict, analytics: str,
+                   image: str | None = None) -> str:
     p = row["player"]
     pos, week = p["position"], meta["fromWeek"]
     call, tone = verdict(row)
@@ -766,12 +771,23 @@ def start_sit_page(meta: dict, row: dict, peers: list[dict], slug: dict, analyti
       one week in ten. Tested on single games in the 2024 and 2025 seasons. The line between starting and
       sitting is the {pos}{startable_rank(pos)} in a twelve-team league; deeper leagues start more.</p>
   </article>"""
+    faq = {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        "mainEntity": [{
+            "@type": "Question",
+            "name": f"Should I start {p['name']} in week {week}?",
+            "acceptedAnswer": {"@type": "Answer", "text": _verdict_text(row, meta)},
+        }],
+    }
     return _shell(meta, f"/start-sit/{{slug}}/", title, description, body, analytics,
-                  [_breadcrumbs(("Start or sit", "/start-sit/"), (p["name"], f"/start-sit/{{slug}}/"))])
+                  [faq, _breadcrumbs(("Start or sit", "/start-sit/"),
+                                     (p["name"], f"/start-sit/{{slug}}/"))], image=image)
 
 
 def start_sit_hub(meta: dict, table: dict[str, list[dict]], pages: set[str], slug: dict,
-                  analytics: str) -> str:
+                  analytics: str, path: str = "/start-sit/", canonical: str | None = None,
+                  image: str | None = None) -> str:
     week = meta["fromWeek"]
     title = f"Start or sit: week {week} calls for every position, {meta['season']} — Waiver"
     description = (f"Who to start and who to sit in week {week}, with a projection, a floor and a "
@@ -810,8 +826,8 @@ def start_sit_hub(meta: dict, table: dict[str, list[dict]], pages: set[str], slu
     <p class="footnote">Projected points count each player's chance of playing. A floor is a bad week
       and a ceiling a good one: about one week in ten falls outside each. Rebuilt every week.</p>
   </section>"""
-    return _shell(meta, "/start-sit/", title, description, body, analytics,
-                  [_breadcrumbs(("Start or sit", "/start-sit/"))])
+    return _shell(meta, path, title, description, body, analytics,
+                  [_breadcrumbs(("Start or sit", "/start-sit/"))], canonical=canonical, image=image)
 
 
 def _reason_text(p: dict, weights: dict, higher: bool, labels: dict) -> str:
@@ -975,6 +991,213 @@ def scorecard_page(meta: dict, card: dict | None, record: dict | None, slug: dic
                   [_breadcrumbs(("Scorecard", "/scorecard/"))])
 
 
+
+# ---------------------------------------------------------------------------
+# Weekly reports: how the site did, in public
+# ---------------------------------------------------------------------------
+# Each report is a small JSON file under web/data/reports/. Writing them as
+# data rather than as pages keeps every week in the same voice and the same
+# styling, and means a past report is never rebuilt into something else.
+
+REPORTS_DIR = "data/reports"
+
+
+def _report_section(section: dict) -> str:
+    """One part of a report: some prose, and at most one table."""
+    out = []
+    if section.get("heading"):
+        out.append(f'    <h2>{e(section["heading"])}</h2>')
+    for para in section.get("paragraphs", []):
+        out.append(f'    <p class="lede">{e(para)}</p>')
+    table = section.get("table")
+    if table and table.get("rows"):
+        head = "".join(f'<th scope="col"{" class=\"num\"" if i else ""}>{e(h)}</th>'
+                       for i, h in enumerate(table["columns"]))
+        body = "\n".join(
+            "      <tr>" + "".join(
+                f'<td{" class=\"num\"" if i else ""}>{e(str(cell))}</td>'
+                for i, cell in enumerate(row)) + "</tr>"
+            for row in table["rows"])
+        out.append(f"""    <div class="board-table-wrap">
+    <table class="board-table">
+      <thead><tr>{head}</tr></thead>
+      <tbody>
+{body}
+      </tbody>
+    </table>
+    </div>""")
+    for note in section.get("notes", []):
+        out.append(f'    <p class="footnote">{e(note)}</p>')
+    return "\n".join(out)
+
+
+def report_page(meta: dict, report: dict, analytics: str) -> str:
+    """One week's report, at an address that keeps it for good."""
+    week = int(report["week"])
+    title = f"{report['title']} — Waiver"
+    body = f"""  <article class="board">
+    <h1>{e(report["title"])}</h1>
+    <p class="meta">Week {week} · {e(report.get("date", ""))}</p>
+    <p class="lede">{e(report["summary"])}</p>
+{chr(10).join(_report_section(sec) for sec in report.get("sections", []))}
+    <p class="footnote">Every number here is measured on games already played, against the
+      same players and the same scoring. Weeks the site loses are reported too: a record that
+      only shows wins is not a record. <a href="/scorecard/">The scorecard</a> carries the
+      running totals, and <a href="/reports/">every report is kept</a>.</p>
+  </article>"""
+    return _shell(meta, f"/reports/week-{week}/", title, report["summary"], body, analytics,
+                  [_breadcrumbs(("Reports", "/reports/"), (f"Week {week}", f"/reports/week-{week}/"))])
+
+
+def reports_index(meta: dict, reports: list[dict], analytics: str) -> str:
+    title = f"Weekly reports: how Waiver's picks did, {meta['season']} — Waiver"
+    description = ("Every week, how Waiver's projections fared against expert consensus and "
+                   "against other sites' projections, measured on games already played.")
+    if reports:
+        items = "\n".join(
+            f'      <li><a href="/reports/week-{r["week"]}/">{e(r["title"])}</a>'
+            f'<span>{e(r.get("date", ""))} · {e(r["summary"][:140])}</span></li>'
+            for r in sorted(reports, key=lambda r: int(r["week"]), reverse=True))
+        listing = f'    <ul class="board-list">\n{items}\n    </ul>'
+    else:
+        listing = ('    <p class="lede">The first report goes up once a week of games has been '
+                   "played and graded.</p>")
+    body = f"""  <section class="board">
+    <h1>Weekly reports</h1>
+    <p class="lede">What the model got right and wrong last week, set against the average of
+      expert rankings and against what other sites projected for the same players. Written
+      after the games, not before.</p>
+{listing}
+  </section>"""
+    return _shell(meta, "/reports/", title, description, body, analytics,
+                  [_breadcrumbs(("Reports", "/reports/"))])
+
+
+def load_reports(*roots: Path) -> list[dict]:
+    """Every report written so far, skipping anything malformed.
+
+    Reports are written by hand into web/data/reports/, so they are read from
+    the source tree as well as from wherever the pages are being written: a
+    build into a scratch directory still finds them.
+    """
+    found, seen = [], set()
+    paths = [q for root in roots for q in sorted((root / REPORTS_DIR).glob("week-*.json"))]
+    for path in paths:
+        if path.name in seen:
+            continue
+        seen.add(path.name)
+        data = _read_json(path)
+        if data and {"week", "title", "summary"} <= set(data):
+            found.append(data)
+    return found
+
+
+# How many start-or-sit pages get a preview image of their own. Each is about
+# 17 KB and is rewritten every week, so this is a deliberate ceiling rather
+# than a limit of the drawing.
+CARD_PLAYERS = 24
+
+
+def make_cards(meta: dict, calls: dict[str, list[dict]], slug: dict, out: Path) -> dict[str, str]:
+    """Draw a preview image for the week's hub and its most-shared players.
+
+    Pillow is not in the site's requirements, because the site does not need
+    it: where it is missing every page keeps the one default image instead.
+    """
+    try:
+        from tools.make_og_image import card, save
+    except Exception as err:
+        print(f"  preview images skipped ({type(err).__name__}); pages keep the default")
+        return {}
+
+    week = meta["fromWeek"]
+    made: dict[str, str] = {}
+    ranked = sorted((r for rows in calls.values() for r in rows),
+                    key=lambda r: r["points"], reverse=True)
+    for row in ranked[:CARD_PLAYERS]:
+        player = row["player"]
+        if player["id"] not in slug:
+            continue
+        call, _ = verdict(row)
+        image = card(
+            f"Start or sit {player['name']} in week {week}?",
+            f"{call}. {player['position']}{row['rank']} this week, against {row['opp']}.",
+            [("Projected", f"{row['points']:.1f}"), ("Floor", f"{row['floor']:.1f}"),
+             ("Ceiling", f"{row['ceiling']:.1f}")])
+        rel = f"og/start-sit/{slug[player['id']]}.png"
+        save(image, out / rel)
+        made[player["id"]] = f"/{rel}"
+
+    hub = card(f"Start or sit in week {week}",
+               "Every position ranked for the week, with a floor and a ceiling for each player.",
+               [("Positions", "6"), ("Players", str(sum(len(v) for v in calls.values())))])
+    save(hub, out / "og/start-sit.png")
+    made["__hub__"] = "/og/start-sit.png"
+    return made
+
+
+def players_index(meta: dict, featured: dict, slug: dict, ppg: dict, analytics: str) -> str:
+    """Every player with a page, by position. Without this a crawler reaches
+    the deepest pages only by following a ranking five steps down."""
+    title = f"Every player, week {meta['fromWeek']}, {meta['season']} — Waiver"
+    description = ("Rest-of-season outlooks for every fantasy football player Waiver ranks, "
+                   "by position. Updated weekly.")
+    blocks = []
+    for pos in ALL_POSITIONS:
+        group = sorted((p for p in featured.values() if p["position"] == pos),
+                       key=lambda p: ppg.get(p["id"], 0.0), reverse=True)
+        if not group:
+            continue
+        links = " · ".join(f'<a href="/players/{slug[p["id"]]}/">{e(p["name"])}</a>'
+                           for p in group if p["id"] in slug)
+        blocks.append(f'    <h2 id="{pos.lower()}">{NAMES[pos].capitalize()}s</h2>\n'
+                      f'    <p class="lede">{links}</p>')
+    nav = "".join(f'<a href="#{pos.lower()}">{pos}</a>' for pos in ALL_POSITIONS)
+    body = f"""  <section class="board">
+    <h1>Every player</h1>
+    <p class="lede">One page each, rebuilt every week: what the model projects for the rest of
+      the season, what it sees in his usage, and how his week ahead looks.</p>
+    <nav class="board-nav" aria-label="Positions">{nav}</nav>
+{chr(10).join(blocks)}
+  </section>"""
+    return _shell(meta, "/players/", title, description, body, analytics,
+                  [_breadcrumbs(("Players", "/players/"))])
+
+
+def feed(meta: dict, reports: list[dict], has_waiver: bool) -> str:
+    """A feed of what changes each week, for readers and chat bots."""
+    generated = datetime.fromisoformat(meta["generated"])
+    stamp = generated.strftime("%a, %d %b %Y %H:%M:%S +0000")
+    week = meta["fromWeek"]
+    items = []
+    if has_waiver:
+        items.append((f"Waiver wire pickups for week {week}", f"/waiver-wire/week-{week}/",
+                      "The most-added players, ranked by how much each is projected to help."))
+    items.append((f"Start or sit in week {week}", f"/start-sit/week-{week}/",
+                  "Every position's week ranked, with a floor and a ceiling for each player."))
+    for report in sorted(reports, key=lambda r: int(r["week"]), reverse=True)[:5]:
+        items.append((report["title"], f"/reports/week-{int(report['week'])}/", report["summary"]))
+    entries = "".join(f"""    <item>
+      <title>{e(t)}</title>
+      <link>{SITE}{path}</link>
+      <guid>{SITE}{path}</guid>
+      <pubDate>{stamp}</pubDate>
+      <description>{e(desc)}</description>
+    </item>
+""" for t, path, desc in items)
+    return f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Waiver</title>
+    <link>{SITE}/</link>
+    <description>Weekly fantasy football projections, graded in public.</description>
+    <language>en</language>
+    <lastBuildDate>{stamp}</lastBuildDate>
+{entries}  </channel>
+</rss>
+"""
+
+
 def _read_json(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text())
@@ -1030,7 +1253,14 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
         pages[f"rankings/{pos.lower()}/index.html"] = position_page(
             meta, pos, by_pos[pos], ppg, slug, analytics, ranked_positions)
     if trending:
-        pages["waiver-wire/index.html"] = waiver_page(meta, trending, ppg, levels, slug, analytics)
+        # A week's own address keeps that week's picks for good, and is the one
+        # search engines are pointed at; the evergreen address always shows the
+        # current week and defers to it.
+        week_path = f"/waiver-wire/week-{meta['fromWeek']}/"
+        pages[f"waiver-wire/week-{meta['fromWeek']}/index.html"] = waiver_page(
+            meta, trending, ppg, levels, slug, analytics, path=week_path)
+        pages["waiver-wire/index.html"] = waiver_page(
+            meta, trending, ppg, levels, slug, analytics, canonical=week_path)
     players_by_pos = {p["id"]: p["position"] for p in players}
     stash = stash_rows(players, weights, levels)
     # A stash is searched by name as much as anyone, so each has a page too.
@@ -1045,6 +1275,7 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
     # season, plus a hub that answers the position-wide version of it.
     week = meta["fromWeek"]
     calls = start_sit_table(players, weights, week, meta.get("dudOdds"))
+    cards = make_cards(meta, calls, slug, out)
     start_sit_slugs = []
     for pos, rows in calls.items():
         by_id = {r["player"]["id"]: i for i, r in enumerate(rows)}
@@ -1053,22 +1284,37 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
             if i is None or players_by_pos.get(pid) != pos:
                 continue
             near = [r for r in rows[max(0, i - 2):i + 3] if r["player"]["id"] != pid]
-            page = start_sit_page(meta, rows[i], near, slug, analytics)
+            page = start_sit_page(meta, rows[i], near, slug, analytics, image=cards.get(pid))
             pages[f"start-sit/{slug[pid]}/index.html"] = page.replace("{slug}", slug[pid])
             start_sit_slugs.append(slug[pid])
-    pages["start-sit/index.html"] = start_sit_hub(meta, calls, set(featured), slug, analytics)
+    sit_week = f"/start-sit/week-{week}/"
+    hub_card = cards.get("__hub__")
+    pages[f"start-sit/week-{week}/index.html"] = start_sit_hub(
+        meta, calls, set(featured), slug, analytics, path=sit_week, image=hub_card)
+    pages["start-sit/index.html"] = start_sit_hub(
+        meta, calls, set(featured), slug, analytics, canonical=sit_week, image=hub_card)
 
     # Where the model parts with the experts, and how its calls have gone.
     labels = meta.get("driverLabels", {}) | {"missed_games": "Missed games"}
     pages["model-vs-experts/index.html"] = experts_page(meta, disagree.disagreements(payload), slug,
                                                         labels, analytics)
+    pages["players/index.html"] = players_index(meta, featured, slug, ppg, analytics)
+    reports = load_reports(out, Path("web"))
+    pages["reports/index.html"] = reports_index(meta, reports, analytics)
+    for report in reports:
+        pages[f"reports/week-{int(report['week'])}/index.html"] = report_page(meta, report, analytics)
+
     pages["scorecard/index.html"] = scorecard_page(meta, _read_json(out / "data/scorecard.json"),
                                                    _read_json(out / "data/track-record.json"), slug, analytics)
 
     # Last week's player pages go, so a player who drops out of the rankings
     # does not leave a stale page behind.
     shutil.rmtree(out / "players", ignore_errors=True)
-    shutil.rmtree(out / "start-sit", ignore_errors=True)
+    # players/index.html is written below with the rest, so clearing the
+    # directory first is safe.
+    for stale in (out / "start-sit").glob("*"):
+        if stale.is_dir() and not stale.name.startswith("week-"):
+            shutil.rmtree(stale, ignore_errors=True)
     for rel, text in pages.items():
         path = out / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -1079,7 +1325,12 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
 
     # A waiver page from an earlier build stays listed if this week's adds
     # could not be fetched, so the sitemap never drops a live page.
-    listed = (["/", "/waiver-wire/", "/rankings/"] + [f"/rankings/{p.lower()}/" for p in ranked_positions]
+    archived = sorted(f"/{d.parent.name}/{d.name}/"
+                      for base in ("waiver-wire", "start-sit")
+                      for d in (out / base).glob("week-*") if d.is_dir())
+    listed = (["/", "/waiver-wire/", "/rankings/", "/reports/", "/players/"] + archived
+              + [f"/reports/week-{int(r['week'])}/" for r in reports]
+              + [f"/rankings/{p.lower()}/" for p in ranked_positions]
               + ["/ir-stash/", "/start-sit/", "/model-vs-experts/", "/scorecard/"]
               + [f"/start-sit/{s}/" for s in sorted(start_sit_slugs)]
               + [f"/players/{s}/" for s in sorted(slug.values())] + STATIC_PATHS)
@@ -1087,6 +1338,7 @@ def build(payload: dict, out: Path, adds: list[tuple[str, int]], analytics: str)
         listed.remove("/waiver-wire/")
     lastmod = datetime.fromisoformat(meta["generated"]).date().isoformat()
     (out / "sitemap.xml").write_text(sitemap(listed, lastmod))
+    (out / "feed.xml").write_text(feed(meta, reports, (out / "waiver-wire/index.html").exists()))
     return sorted(pages)
 
 
