@@ -91,3 +91,12 @@ jobs:
           git add web
           git diff --staged --quiet || git commit -m "Projections and pages for week ${{ steps.week.outputs.value }}"
           git push
+
+      # Only once the pages are published: IndexNow is an invitation to come
+      # and read them, so it has to point at what is actually there. Pages
+      # takes a moment to go live after the push, hence the wait, and a failed
+      # ping is not worth failing the build over.
+      - name: Tell Bing what changed
+        run: |
+          sleep 90
+          python -m tools.indexnow || echo "IndexNow ping did not go through; the pages will be crawled anyway"

@@ -40,6 +40,13 @@ FULL_FORM_FROM_WEEK = 3
 # site never has.
 LINES_KNOWN_AHEAD = 1
 
+# IndexNow, which tells Bing a page has changed rather than waiting for it to
+# be crawled. The key is published at the site root by design: hosting it is
+# how the protocol proves the ping came from someone who can write to the
+# site. It is not a secret and there is nothing to protect.
+INDEXNOW_KEY = "c47edc30cb34f32d70ee507517f928e1"
+
+
 # ---------------------------------------------------------------------------
 # Scoring
 # ---------------------------------------------------------------------------
