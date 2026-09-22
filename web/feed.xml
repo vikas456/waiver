@@ -5,20 +5,27 @@
     <link>https://fantasywaiverpicks.com/</link>
     <description>Weekly fantasy football projections, graded in public.</description>
     <language>en</language>
-    <lastBuildDate>Sun, 20 Sep 2026 17:53:43 +0000</lastBuildDate>
+    <lastBuildDate>Tue, 22 Sep 2026 17:25:57 +0000</lastBuildDate>
     <item>
-      <title>Waiver wire pickups for week 2</title>
-      <link>https://fantasywaiverpicks.com/waiver-wire/week-2/</link>
-      <guid>https://fantasywaiverpicks.com/waiver-wire/week-2/</guid>
-      <pubDate>Sun, 20 Sep 2026 17:53:43 +0000</pubDate>
+      <title>Waiver wire pickups for week 3</title>
+      <link>https://fantasywaiverpicks.com/waiver-wire/week-3/</link>
+      <guid>https://fantasywaiverpicks.com/waiver-wire/week-3/</guid>
+      <pubDate>Tue, 22 Sep 2026 17:25:57 +0000</pubDate>
       <description>The most-added players, ranked by how much each is projected to help.</description>
     </item>
     <item>
-      <title>Start or sit in week 2</title>
-      <link>https://fantasywaiverpicks.com/start-sit/week-2/</link>
-      <guid>https://fantasywaiverpicks.com/start-sit/week-2/</guid>
-      <pubDate>Sun, 20 Sep 2026 17:53:43 +0000</pubDate>
+      <title>Start or sit in week 3</title>
+      <link>https://fantasywaiverpicks.com/start-sit/week-3/</link>
+      <guid>https://fantasywaiverpicks.com/start-sit/week-3/</guid>
+      <pubDate>Tue, 22 Sep 2026 17:25:57 +0000</pubDate>
       <description>Every position&#x27;s week ranked, with a floor and a ceiling for each player.</description>
+    </item>
+    <item>
+      <title>Week 2: how the picks actually did</title>
+      <link>https://fantasywaiverpicks.com/reports/week-2/</link>
+      <guid>https://fantasywaiverpicks.com/reports/week-2/</guid>
+      <pubDate>Tue, 22 Sep 2026 17:25:57 +0000</pubDate>
+      <description>In week 2, Waiver ordered players correctly 86.9% of the time, ahead of expert consensus on 82.5%.</description>
     </item>
   </channel>
 </rss>
