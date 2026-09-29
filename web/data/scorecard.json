@@ -1,6 +1,6 @@
 {
  "season": 2026,
- "updated": "2026-09-27T18:52:03+00:00",
+ "updated": "2026-09-29T18:22:30+00:00",
  "weeks": [
   {
    "week": 2,
@@ -301,11 +301,311 @@
      "closer": "model"
     }
    ]
+  },
+  {
+   "week": 3,
+   "overall": {
+    "site": 0.8173,
+    "consensus": 0.7285,
+    "last4": 0.7377
+   },
+   "positions": {
+    "QB": {
+     "site": 0.7798,
+     "consensus": 0.7241,
+     "last4": 0.6804,
+     "pairs": 754
+    },
+    "RB": {
+     "site": 0.8744,
+     "consensus": 0.8211,
+     "last4": 0.7901,
+     "pairs": 4187
+    },
+    "TE": {
+     "site": 0.7694,
+     "consensus": 0.6378,
+     "last4": 0.7407,
+     "pairs": 2827
+    },
+    "WR": {
+     "site": 0.8456,
+     "consensus": 0.7312,
+     "last4": 0.7398,
+     "pairs": 10969
+    }
+   },
+   "calls": [
+    {
+     "id": "00-0040743",
+     "name": "Tyler Shough",
+     "position": "QB",
+     "side": "higher",
+     "modelRank": 4,
+     "consensusRank": 14,
+     "finish": 6,
+     "points": 23.8,
+     "closer": "model"
+    },
+    {
+     "id": "00-0026498",
+     "name": "Matthew Stafford",
+     "position": "QB",
+     "side": "higher",
+     "modelRank": 8,
+     "consensusRank": 15,
+     "finish": 10,
+     "points": 20.9,
+     "closer": "model"
+    },
+    {
+     "id": "00-0033119",
+     "name": "Jacoby Brissett",
+     "position": "QB",
+     "side": "higher",
+     "modelRank": 21,
+     "consensusRank": 28,
+     "finish": 4,
+     "points": 25.6,
+     "closer": "model"
+    },
+    {
+     "id": "00-0035228",
+     "name": "Kyler Murray",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 30,
+     "consensusRank": 19,
+     "finish": 25,
+     "points": 10.4,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039851",
+     "name": "Drake Maye",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 12,
+     "consensusRank": 5,
+     "finish": 30,
+     "points": 3.8,
+     "closer": "model"
+    },
+    {
+     "id": "00-0036971",
+     "name": "Trevor Lawrence",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 11,
+     "consensusRank": 4,
+     "finish": 14,
+     "points": 19.8,
+     "closer": "model"
+    },
+    {
+     "id": "00-0035250",
+     "name": "Devin Singletary",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 48,
+     "consensusRank": 73,
+     "finish": 75,
+     "points": 0.0,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0034975",
+     "name": "Justice Hill",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 47,
+     "consensusRank": 71,
+     "finish": 50,
+     "points": 3.3,
+     "closer": "model"
+    },
+    {
+     "id": "00-0040583",
+     "name": "Woody Marks",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 30,
+     "consensusRank": 47,
+     "finish": 29,
+     "points": 9.1,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039344",
+     "name": "Jonathon Brooks",
+     "position": "RB",
+     "side": "lower",
+     "modelRank": 91,
+     "consensusRank": 39,
+     "finish": 89,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0041496",
+     "name": "Jonah Coleman",
+     "position": "RB",
+     "side": "lower",
+     "modelRank": 88,
+     "consensusRank": 42,
+     "finish": 107,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0037525",
+     "name": "Jordan Mason",
+     "position": "RB",
+     "side": "lower",
+     "modelRank": 78,
+     "consensusRank": 45,
+     "finish": 78,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039901",
+     "name": "Keon Coleman",
+     "position": "WR",
+     "side": "higher",
+     "modelRank": 60,
+     "consensusRank": 90,
+     "finish": 74,
+     "points": 4.7,
+     "closer": "model"
+    },
+    {
+     "id": "00-0032464",
+     "name": "Kalif Raymond",
+     "position": "WR",
+     "side": "higher",
+     "modelRank": 56,
+     "consensusRank": 85,
+     "finish": 9,
+     "points": 21.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0041489",
+     "name": "Germie Bernard",
+     "position": "WR",
+     "side": "higher",
+     "modelRank": 58,
+     "consensusRank": 84,
+     "finish": 97,
+     "points": 2.4,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0037664",
+     "name": "Alec Pierce",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 141,
+     "consensusRank": 56,
+     "finish": 136,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0035676",
+     "name": "A.J. Brown",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 111,
+     "consensusRank": 27,
+     "finish": 121,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0034827",
+     "name": "DJ Moore",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 55,
+     "consensusRank": 23,
+     "finish": 31,
+     "points": 12.7,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0039066",
+     "name": "Michael Mayer",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 15,
+     "consensusRank": 35,
+     "finish": 12,
+     "points": 12.2,
+     "closer": "model"
+    },
+    {
+     "id": "00-0038129",
+     "name": "Cade Otton",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 12,
+     "consensusRank": 29,
+     "finish": 21,
+     "points": 8.6,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0034829",
+     "name": "Mike Gesicki",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 19,
+     "consensusRank": 32,
+     "finish": 11,
+     "points": 12.7,
+     "closer": "model"
+    },
+    {
+     "id": "00-0040189",
+     "name": "Oronde Gadsden II",
+     "position": "TE",
+     "side": "lower",
+     "modelRank": 42,
+     "consensusRank": 22,
+     "finish": 77,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0036970",
+     "name": "Kyle Pitts",
+     "position": "TE",
+     "side": "lower",
+     "modelRank": 33,
+     "consensusRank": 13,
+     "finish": 50,
+     "points": 1.5,
+     "closer": "model"
+    },
+    {
+     "id": "00-0040126",
+     "name": "Colston Loveland",
+     "position": "TE",
+     "side": "lower",
+     "modelRank": 17,
+     "consensusRank": 5,
+     "finish": 26,
+     "points": 7.1,
+     "closer": "model"
+    }
+   ]
   }
  ],
  "calls": {
-  "model": 9,
-  "experts": 14,
+  "model": 29,
+  "experts": 18,
   "even": 1
  }
 }
