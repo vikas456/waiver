@@ -1,0 +1,224 @@
+{
+  "week": 8,
+  "season": 2026,
+  "title": "Week 8: how the picks actually did",
+  "date": "03 November 2026",
+  "summary": "In week 8, Waiver ordered players correctly 86.8% of the time, ahead of expert consensus on 81.9%.",
+  "sections": [
+    {
+      "heading": "Against the experts",
+      "paragraphs": [
+        "Every pair of players at the same position whose scores finished at least two points apart, and how often each source put them in the right order. A player whose team played and who did not counts as the zero he scored."
+      ],
+      "table": {
+        "columns": [
+          "Source",
+          "Right order"
+        ],
+        "rows": [
+          [
+            "Waiver",
+            "86.8%"
+          ],
+          [
+            "Expert consensus",
+            "81.9%"
+          ],
+          [
+            "Going by recent points",
+            "78.8%"
+          ]
+        ]
+      }
+    },
+    {
+      "heading": "Against Sleeper's projections",
+      "paragraphs": [
+        "Over the 322 players both Waiver and Sleeper projected, scored the same way on the same games. Sleeper's numbers were captured before the games."
+      ],
+      "table": {
+        "columns": [
+          "Source",
+          "Right order"
+        ],
+        "rows": [
+          [
+            "Waiver",
+            "78.1%"
+          ],
+          [
+            "Sleeper",
+            "78.2%"
+          ]
+        ]
+      },
+      "notes": [
+        "11615 pairs counted."
+      ]
+    },
+    {
+      "heading": "The calls against consensus",
+      "paragraphs": [
+        "The players Waiver ranked furthest from the experts before the week. It was nearer the finish on 10 of 21."
+      ],
+      "table": {
+        "columns": [
+          "Player",
+          "Waiver",
+          "Experts",
+          "Finished",
+          "Nearer"
+        ],
+        "rows": [
+          [
+            "Jacoby Brissett",
+            "QB19",
+            "QB27",
+            "QB25 \u00b7 3.5",
+            "Experts"
+          ],
+          [
+            "Daniel Jones",
+            "QB23",
+            "QB30",
+            "QB23 \u00b7 6.5",
+            "Waiver"
+          ],
+          [
+            "Lamar Jackson",
+            "QB16",
+            "QB4",
+            "QB39 \u00b7 0.0",
+            "Waiver"
+          ],
+          [
+            "Jayden Daniels",
+            "QB22",
+            "QB13",
+            "QB14 \u00b7 15.0",
+            "Experts"
+          ],
+          [
+            "Kyler Murray",
+            "QB30",
+            "QB21",
+            "QB8 \u00b7 19.9",
+            "Experts"
+          ],
+          [
+            "Pierre Strong",
+            "RB41",
+            "RB110",
+            "RB63 \u00b7 0.2",
+            "Waiver"
+          ],
+          [
+            "Audric Estim\u00e9",
+            "RB48",
+            "RB96",
+            "RB87 \u00b7 0.0",
+            "Experts"
+          ],
+          [
+            "Justice Hill",
+            "RB47",
+            "RB71",
+            "RB31 \u00b7 7.5",
+            "Waiver"
+          ],
+          [
+            "RJ Harvey",
+            "RB103",
+            "RB38",
+            "RB106 \u00b7 0.0",
+            "Waiver"
+          ],
+          [
+            "Emmett Johnson",
+            "RB65",
+            "RB41",
+            "RB5 \u00b7 25.3",
+            "Experts"
+          ],
+          [
+            "DeMario Douglas",
+            "WR52",
+            "WR72",
+            "WR13 \u00b7 16.6",
+            "Waiver"
+          ],
+          [
+            "Keon Coleman",
+            "WR47",
+            "WR66",
+            "WR81 \u00b7 1.4",
+            "Experts"
+          ],
+          [
+            "Ladd McConkey",
+            "WR71",
+            "WR33",
+            "WR28 \u00b7 12.6",
+            "Experts"
+          ],
+          [
+            "DJ Moore",
+            "WR57",
+            "WR29",
+            "WR14 \u00b7 16.6",
+            "Experts"
+          ],
+          [
+            "Davante Adams",
+            "WR87",
+            "WR60",
+            "WR113 \u00b7 0.0",
+            "Waiver"
+          ],
+          [
+            "Tyler Higbee",
+            "TE18",
+            "TE28",
+            "TE41 \u00b7 2.4",
+            "Experts"
+          ],
+          [
+            "Greg Dulcich",
+            "TE20",
+            "TE30",
+            "TE18 \u00b7 8.3",
+            "Waiver"
+          ],
+          [
+            "Cade Otton",
+            "TE24",
+            "TE33",
+            "TE76 \u00b7 0.0",
+            "Experts"
+          ],
+          [
+            "Terrance Ferguson",
+            "TE71",
+            "TE20",
+            "TE98 \u00b7 0.0",
+            "Waiver"
+          ],
+          [
+            "T.J. Hockenson",
+            "TE25",
+            "TE15",
+            "TE7 \u00b7 15.8",
+            "Experts"
+          ],
+          [
+            "Jake Ferguson",
+            "TE30",
+            "TE23",
+            "TE83 \u00b7 0.0",
+            "Waiver"
+          ]
+        ]
+      }
+    }
+  ]
+}

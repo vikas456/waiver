@@ -1,6 +1,6 @@
 {
  "season": 2026,
- "updated": "2026-11-01T19:20:39+00:00",
+ "updated": "2026-11-03T19:53:55+00:00",
  "weeks": [
   {
    "week": 2,
@@ -1757,11 +1757,278 @@
      "closer": "model"
     }
    ]
+  },
+  {
+   "week": 8,
+   "overall": {
+    "site": 0.8683,
+    "consensus": 0.8193,
+    "last4": 0.7876
+   },
+   "positions": {
+    "QB": {
+     "site": 0.8467,
+     "consensus": 0.8275,
+     "last4": 0.7644,
+     "pairs": 887
+    },
+    "RB": {
+     "site": 0.883,
+     "consensus": 0.8418,
+     "last4": 0.8035,
+     "pairs": 4335
+    },
+    "TE": {
+     "site": 0.8747,
+     "consensus": 0.8069,
+     "last4": 0.8183,
+     "pairs": 3153
+    },
+    "WR": {
+     "site": 0.8689,
+     "consensus": 0.8009,
+     "last4": 0.7641,
+     "pairs": 10657
+    }
+   },
+   "calls": [
+    {
+     "id": "00-0033119",
+     "name": "Jacoby Brissett",
+     "position": "QB",
+     "side": "higher",
+     "modelRank": 19,
+     "consensusRank": 27,
+     "finish": 25,
+     "points": 3.5,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0035710",
+     "name": "Daniel Jones",
+     "position": "QB",
+     "side": "higher",
+     "modelRank": 23,
+     "consensusRank": 30,
+     "finish": 23,
+     "points": 6.5,
+     "closer": "model"
+    },
+    {
+     "id": "00-0034796",
+     "name": "Lamar Jackson",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 16,
+     "consensusRank": 4,
+     "finish": 39,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039910",
+     "name": "Jayden Daniels",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 22,
+     "consensusRank": 13,
+     "finish": 14,
+     "points": 15.0,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0035228",
+     "name": "Kyler Murray",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 30,
+     "consensusRank": 21,
+     "finish": 8,
+     "points": 19.9,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0038098",
+     "name": "Pierre Strong",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 41,
+     "consensusRank": 110,
+     "finish": 63,
+     "points": 0.2,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039373",
+     "name": "Audric Estim\u00e9",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 48,
+     "consensusRank": 96,
+     "finish": 87,
+     "points": 0.0,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0034975",
+     "name": "Justice Hill",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 47,
+     "consensusRank": 71,
+     "finish": 31,
+     "points": 7.5,
+     "closer": "model"
+    },
+    {
+     "id": "00-0040730",
+     "name": "RJ Harvey",
+     "position": "RB",
+     "side": "lower",
+     "modelRank": 103,
+     "consensusRank": 38,
+     "finish": 106,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0041013",
+     "name": "Emmett Johnson",
+     "position": "RB",
+     "side": "lower",
+     "modelRank": 65,
+     "consensusRank": 41,
+     "finish": 5,
+     "points": 25.3,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0038621",
+     "name": "DeMario Douglas",
+     "position": "WR",
+     "side": "higher",
+     "modelRank": 52,
+     "consensusRank": 72,
+     "finish": 13,
+     "points": 16.6,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039901",
+     "name": "Keon Coleman",
+     "position": "WR",
+     "side": "higher",
+     "modelRank": 47,
+     "consensusRank": 66,
+     "finish": 81,
+     "points": 1.4,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0039915",
+     "name": "Ladd McConkey",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 71,
+     "consensusRank": 33,
+     "finish": 28,
+     "points": 12.6,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0034827",
+     "name": "DJ Moore",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 57,
+     "consensusRank": 29,
+     "finish": 14,
+     "points": 16.6,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0031381",
+     "name": "Davante Adams",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 87,
+     "consensusRank": 60,
+     "finish": 113,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0033110",
+     "name": "Tyler Higbee",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 18,
+     "consensusRank": 28,
+     "finish": 41,
+     "points": 2.4,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0037252",
+     "name": "Greg Dulcich",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 20,
+     "consensusRank": 30,
+     "finish": 18,
+     "points": 8.3,
+     "closer": "model"
+    },
+    {
+     "id": "00-0038129",
+     "name": "Cade Otton",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 24,
+     "consensusRank": 33,
+     "finish": 76,
+     "points": 0.0,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0040737",
+     "name": "Terrance Ferguson",
+     "position": "TE",
+     "side": "lower",
+     "modelRank": 71,
+     "consensusRank": 20,
+     "finish": 98,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0035229",
+     "name": "T.J. Hockenson",
+     "position": "TE",
+     "side": "lower",
+     "modelRank": 25,
+     "consensusRank": 15,
+     "finish": 7,
+     "points": 15.8,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0038041",
+     "name": "Jake Ferguson",
+     "position": "TE",
+     "side": "lower",
+     "modelRank": 30,
+     "consensusRank": 23,
+     "finish": 83,
+     "points": 0.0,
+     "closer": "model"
+    }
+   ]
   }
  ],
  "calls": {
-  "model": 87,
-  "experts": 52,
+  "model": 97,
+  "experts": 63,
   "even": 1
  }
 }
