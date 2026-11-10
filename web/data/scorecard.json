@@ -1,6 +1,6 @@
 {
  "season": 2026,
- "updated": "2026-11-08T19:17:49+00:00",
+ "updated": "2026-11-10T20:05:13+00:00",
  "weeks": [
   {
    "week": 2,
@@ -2024,11 +2024,300 @@
      "closer": "model"
     }
    ]
+  },
+  {
+   "week": 9,
+   "overall": {
+    "site": 0.8773,
+    "consensus": 0.8266,
+    "last4": 0.7904
+   },
+   "positions": {
+    "QB": {
+     "site": 0.8629,
+     "consensus": 0.8512,
+     "last4": 0.7834,
+     "pairs": 1196
+    },
+    "RB": {
+     "site": 0.8789,
+     "consensus": 0.8202,
+     "last4": 0.7966,
+     "pairs": 5044
+    },
+    "TE": {
+     "site": 0.8886,
+     "consensus": 0.8456,
+     "last4": 0.802,
+     "pairs": 3969
+    },
+    "WR": {
+     "site": 0.8787,
+     "consensus": 0.7895,
+     "last4": 0.7795,
+     "pairs": 13013
+    }
+   },
+   "calls": [
+    {
+     "id": "00-0034855",
+     "name": "Baker Mayfield",
+     "position": "QB",
+     "side": "higher",
+     "modelRank": 17,
+     "consensusRank": 24,
+     "finish": 23,
+     "points": 7.7,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0033873",
+     "name": "Patrick Mahomes",
+     "position": "QB",
+     "side": "higher",
+     "modelRank": 4,
+     "consensusRank": 10,
+     "finish": 10,
+     "points": 16.5,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0029604",
+     "name": "Kirk Cousins",
+     "position": "QB",
+     "side": "higher",
+     "modelRank": 18,
+     "consensusRank": 23,
+     "finish": 17,
+     "points": 12.6,
+     "closer": "model"
+    },
+    {
+     "id": "00-0038128",
+     "name": "Malik Willis",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 24,
+     "consensusRank": 16,
+     "finish": 28,
+     "points": 3.8,
+     "closer": "model"
+    },
+    {
+     "id": "00-0035228",
+     "name": "Kyler Murray",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 28,
+     "consensusRank": 20,
+     "finish": 42,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0034869",
+     "name": "Sam Darnold",
+     "position": "QB",
+     "side": "lower",
+     "modelRank": 29,
+     "consensusRank": 22,
+     "finish": 33,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0038098",
+     "name": "Pierre Strong",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 45,
+     "consensusRank": 109,
+     "finish": 48,
+     "points": 5.3,
+     "closer": "model"
+    },
+    {
+     "id": "00-0038797",
+     "name": "Emanuel Wilson",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 25,
+     "consensusRank": 61,
+     "finish": 70,
+     "points": 0.0,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0034975",
+     "name": "Justice Hill",
+     "position": "RB",
+     "side": "higher",
+     "modelRank": 40,
+     "consensusRank": 65,
+     "finish": 7,
+     "points": 18.2,
+     "closer": "model"
+    },
+    {
+     "id": "00-0041027",
+     "name": "Jeremiyah Love",
+     "position": "RB",
+     "side": "lower",
+     "modelRank": 107,
+     "consensusRank": 33,
+     "finish": 120,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0040730",
+     "name": "RJ Harvey",
+     "position": "RB",
+     "side": "lower",
+     "modelRank": 101,
+     "consensusRank": 47,
+     "finish": 109,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0034844",
+     "name": "Saquon Barkley",
+     "position": "RB",
+     "side": "lower",
+     "modelRank": 51,
+     "consensusRank": 22,
+     "finish": 29,
+     "points": 8.2,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0038618",
+     "name": "Xavier Hutchinson",
+     "position": "WR",
+     "side": "higher",
+     "modelRank": 60,
+     "consensusRank": 104,
+     "finish": 33,
+     "points": 11.9,
+     "closer": "model"
+    },
+    {
+     "id": "00-0037741",
+     "name": "Jahan Dotson",
+     "position": "WR",
+     "side": "higher",
+     "modelRank": 59,
+     "consensusRank": 98,
+     "finish": 78,
+     "points": 3.6,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039424",
+     "name": "Devaughn Vele",
+     "position": "WR",
+     "side": "higher",
+     "modelRank": 42,
+     "consensusRank": 58,
+     "finish": 75,
+     "points": 3.7,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0039893",
+     "name": "Brian Thomas Jr.",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 105,
+     "consensusRank": 59,
+     "finish": 146,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039915",
+     "name": "Ladd McConkey",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 65,
+     "consensusRank": 29,
+     "finish": 144,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0039849",
+     "name": "Marvin Harrison Jr.",
+     "position": "WR",
+     "side": "lower",
+     "modelRank": 84,
+     "consensusRank": 56,
+     "finish": 73,
+     "points": 4.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0033110",
+     "name": "Tyler Higbee",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 14,
+     "consensusRank": 29,
+     "finish": 44,
+     "points": 2.3,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0038129",
+     "name": "Cade Otton",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 22,
+     "consensusRank": 35,
+     "finish": 25,
+     "points": 6.5,
+     "closer": "model"
+    },
+    {
+     "id": "00-0037252",
+     "name": "Greg Dulcich",
+     "position": "TE",
+     "side": "higher",
+     "modelRank": 16,
+     "consensusRank": 23,
+     "finish": 41,
+     "points": 3.4,
+     "closer": "experts"
+    },
+    {
+     "id": "00-0040737",
+     "name": "Terrance Ferguson",
+     "position": "TE",
+     "side": "lower",
+     "modelRank": 82,
+     "consensusRank": 18,
+     "finish": 102,
+     "points": 0.0,
+     "closer": "model"
+    },
+    {
+     "id": "00-0038996",
+     "name": "Tucker Kraft",
+     "position": "TE",
+     "side": "lower",
+     "modelRank": 12,
+     "consensusRank": 7,
+     "finish": 48,
+     "points": 1.9,
+     "closer": "model"
+    }
+   ]
   }
  ],
  "calls": {
-  "model": 97,
-  "experts": 63,
+  "model": 113,
+  "experts": 70,
   "even": 1
  }
 }
